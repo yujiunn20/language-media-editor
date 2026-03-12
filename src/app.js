@@ -9,6 +9,7 @@ const lesson = {
 let startTime = 0;
 let endTime = 0;
 let currentPlayInterval = null;
+let editingClipIndex = -1;
 
 // ---------- helpers ----------
 function getStartInput() {
@@ -19,10 +20,46 @@ function getEndInput() {
   return document.getElementById("endTime");
 }
 
+function getLessonTitleInput() {
+  return document.getElementById("lessonTitle");
+}
+
+function getJpInput() {
+  return document.getElementById("jpText");
+}
+
+function getZhInput() {
+  return document.getElementById("zhText");
+}
+
+function getCategoryInput() {
+  return document.getElementById("category");
+}
+
+function getAddClipBtn() {
+  return document.getElementById("addClip");
+}
+
+function getDeleteClipBtn() {
+  return document.getElementById("deleteClipBtn");
+}
+
+function getCancelEditBtn() {
+  return document.getElementById("cancelEditBtn");
+}
+
+function getEditorModeLabel() {
+  return document.getElementById("editorModeLabel");
+}
+
 function parseTimeInput(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
   return n;
+}
+
+function formatTime(value) {
+  return parseTimeInput(value).toFixed(1);
 }
 
 function syncStartEndFromInputs() {
@@ -42,9 +79,63 @@ function seekPlayer(time) {
 
 function stopCurrentClipPlayback() {
   if (currentPlayInterval !== null) {
-    clearInterval(currentPlayInterval);
+    player.removeEventListener("timeupdate", currentPlayInterval);
     currentPlayInterval = null;
   }
+}
+
+function clearClipEditorFields() {
+  startTime = 0;
+  endTime = 0;
+  syncInputsFromStartEnd();
+
+  getJpInput().value = "";
+  getZhInput().value = "";
+  getCategoryInput().value = "";
+}
+
+function setEditorMode(isEditing) {
+  const addBtn = getAddClipBtn();
+  const deleteBtn = getDeleteClipBtn();
+  const cancelBtn = getCancelEditBtn();
+  const modeLabel = getEditorModeLabel();
+
+  if (isEditing) {
+    addBtn.innerText = "Update Clip";
+    deleteBtn.style.display = "inline-block";
+    cancelBtn.style.display = "inline-block";
+    modeLabel.innerText = `Editing clip #${editingClipIndex + 1}`;
+  } else {
+    addBtn.innerText = "Add Clip";
+    deleteBtn.style.display = "none";
+    cancelBtn.style.display = "none";
+    modeLabel.innerText = "New clip mode";
+  }
+}
+
+function exitEditMode(clearFields = true) {
+  editingClipIndex = -1;
+  setEditorMode(false);
+  if (clearFields) {
+    clearClipEditorFields();
+  }
+}
+
+function loadClipIntoEditor(index) {
+  const clip = lesson.clips[index];
+  if (!clip) return;
+
+  editingClipIndex = index;
+
+  startTime = parseTimeInput(clip.start);
+  endTime = parseTimeInput(clip.end);
+  syncInputsFromStartEnd();
+
+  getJpInput().value = clip.jp || "";
+  getZhInput().value = clip.zh || "";
+  getCategoryInput().value = clip.category || "";
+
+  setEditorMode(true);
 }
 
 function resetEditorForNewLesson(selectedMediaName = "") {
@@ -52,15 +143,8 @@ function resetEditorForNewLesson(selectedMediaName = "") {
   lesson.media = selectedMediaName;
   lesson.clips = [];
 
-  startTime = 0;
-  endTime = 0;
-  syncInputsFromStartEnd();
-
-  document.getElementById("lessonTitle").value = "";
-  document.getElementById("jpText").value = "";
-  document.getElementById("zhText").value = "";
-  document.getElementById("category").value = "";
-
+  getLessonTitleInput().value = "";
+  exitEditMode(true);
   renderClips();
 }
 
@@ -69,15 +153,8 @@ function loadLessonToEditor(data) {
   lesson.media = data.media || "";
   lesson.clips = Array.isArray(data.clips) ? data.clips : [];
 
-  document.getElementById("lessonTitle").value = lesson.title;
-  document.getElementById("jpText").value = "";
-  document.getElementById("zhText").value = "";
-  document.getElementById("category").value = "";
-
-  startTime = 0;
-  endTime = 0;
-  syncInputsFromStartEnd();
-
+  getLessonTitleInput().value = lesson.title;
+  exitEditMode(true);
   renderClips();
 }
 
@@ -90,6 +167,7 @@ async function initLibrary() {
   await refreshMediaList();
   await refreshLessonList();
   syncInputsFromStartEnd();
+  setEditorMode(false);
 }
 
 async function refreshMediaList() {
@@ -136,6 +214,49 @@ async function refreshLessonList() {
   });
 }
 
+async function transcribeCurrentClip() {
+  syncStartEndFromInputs();
+
+  if (!lesson.media) {
+    alert("請先在 Media Library 選一個媒體檔");
+    return;
+  }
+
+  if (endTime <= startTime) {
+    alert("End time 必須大於 Start time");
+    return;
+  }
+
+  const btn = document.getElementById("transcribeClipBtn");
+  const status = document.getElementById("transcribeStatus");
+
+  try {
+    btn.disabled = true;
+    if (status) status.innerText = "Transcribing...";
+
+    const result = await window.electronAPI.transcribeClip({
+      mediaFilename: lesson.media,
+      start: startTime,
+      end: endTime,
+      lang: "ja"
+    });
+
+    getJpInput().value = result.text || "";
+
+    if (status) {
+      status.innerText = result.text
+        ? "Transcription done."
+        : "No speech detected.";
+    }
+  } catch (err) {
+    console.error(err);
+    alert(`轉錄失敗：\n${err.message || err}`);
+    if (status) status.innerText = "Transcription failed.";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ---------- import buttons ----------
 document.getElementById("importMediaBtn").onclick = async () => {
   const filename = await window.electronAPI.importMediaFile();
@@ -177,13 +298,13 @@ document.getElementById("jumpEnd").onclick = () => {
 getStartInput().addEventListener("change", syncStartEndFromInputs);
 getEndInput().addEventListener("change", syncStartEndFromInputs);
 
-// ---------- add clip ----------
+// ---------- add / update clip ----------
 document.getElementById("addClip").onclick = () => {
   syncStartEndFromInputs();
 
-  const jp = document.getElementById("jpText").value.trim();
-  const zh = document.getElementById("zhText").value.trim();
-  const category = document.getElementById("category").value.trim();
+  const jp = getJpInput().value.trim();
+  const zh = getZhInput().value.trim();
+  const category = getCategoryInput().value.trim();
 
   if (!lesson.media) {
     alert("請先在 Media Library 選一個媒體檔");
@@ -200,26 +321,58 @@ document.getElementById("addClip").onclick = () => {
     return;
   }
 
-  lesson.title = document.getElementById("lessonTitle").value.trim();
+  lesson.title = getLessonTitleInput().value.trim();
 
-  lesson.clips.push({
+  const clipData = {
     start: startTime,
     end: endTime,
     jp,
     zh,
     category
-  });
+  };
+
+  if (editingClipIndex >= 0) {
+    lesson.clips[editingClipIndex] = clipData;
+  } else {
+    lesson.clips.push(clipData);
+  }
 
   renderClips();
+  exitEditMode(true);
+};
 
-  document.getElementById("jpText").value = "";
-  document.getElementById("zhText").value = "";
-  document.getElementById("category").value = "";
+document.getElementById("deleteClipBtn").onclick = () => {
+  if (editingClipIndex < 0) return;
+
+  const ok = confirm(`確定要刪除第 ${editingClipIndex + 1} 個 clip 嗎？`);
+  if (!ok) return;
+
+  lesson.clips.splice(editingClipIndex, 1);
+  renderClips();
+  exitEditMode(true);
+};
+
+document.getElementById("cancelEditBtn").onclick = () => {
+  exitEditMode(true);
+};
+
+document.getElementById("playEditorClipBtn").onclick = () => {
+  syncStartEndFromInputs();
+
+  if (endTime <= startTime) {
+    alert("End time 必須大於 Start time");
+    return;
+  }
+
+  playClip({
+    start: startTime,
+    end: endTime
+  });
 };
 
 // ---------- save lesson ----------
 document.getElementById("saveLesson").onclick = async () => {
-  const title = document.getElementById("lessonTitle").value.trim();
+  const title = getLessonTitleInput().value.trim();
 
   if (!title) {
     alert("請先輸入 Lesson title");
@@ -243,6 +396,8 @@ document.getElementById("saveLesson").onclick = async () => {
   await refreshLessonList();
 };
 
+document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
+
 // ---------- render clips ----------
 function renderClips() {
   const list = document.getElementById("clipList");
@@ -250,86 +405,39 @@ function renderClips() {
 
   lesson.clips.forEach((clip, i) => {
     const li = document.createElement("li");
-    li.style.marginBottom = "12px";
-    li.style.padding = "8px";
-    li.style.border = "1px solid #ccc";
-    li.style.borderRadius = "6px";
+    li.className = "clip-card";
 
-    const startInput = document.createElement("input");
-    startInput.type = "number";
-    startInput.step = "0.1";
-    startInput.value = Number(clip.start || 0).toFixed(1);
-    startInput.style.width = "80px";
+    const meta = document.createElement("div");
+    meta.className = "clip-meta";
+    meta.innerText = `[${formatTime(clip.start)} - ${formatTime(clip.end)}]` +
+      (clip.category ? `  |  ${clip.category}` : "");
 
-    const endInput = document.createElement("input");
-    endInput.type = "number";
-    endInput.step = "0.1";
-    endInput.value = Number(clip.end || 0).toFixed(1);
-    endInput.style.width = "80px";
+    const jpDiv = document.createElement("div");
+    jpDiv.className = "clip-jp";
+    jpDiv.innerText = clip.jp || "";
 
-    const jpInput = document.createElement("input");
-    jpInput.type = "text";
-    jpInput.value = clip.jp || "";
-    jpInput.placeholder = "Japanese sentence";
-    jpInput.style.width = "260px";
+    const zhDiv = document.createElement("div");
+    zhDiv.className = "clip-zh";
+    zhDiv.innerText = clip.zh || "";
 
-    const zhInput = document.createElement("input");
-    zhInput.type = "text";
-    zhInput.value = clip.zh || "";
-    zhInput.placeholder = "Chinese translation";
-    zhInput.style.width = "220px";
-
-    const categoryInput = document.createElement("input");
-    categoryInput.type = "text";
-    categoryInput.value = clip.category || "";
-    categoryInput.placeholder = "Category";
-    categoryInput.style.width = "140px";
+    const actions = document.createElement("div");
+    actions.className = "clip-actions";
 
     const playBtn = document.createElement("button");
     playBtn.innerText = "Play";
     playBtn.onclick = () => {
-      const previewClip = {
-        start: parseTimeInput(startInput.value),
-        end: parseTimeInput(endInput.value),
-        jp: jpInput.value.trim(),
-        zh: zhInput.value.trim(),
-        category: categoryInput.value.trim()
-      };
-
-      if (previewClip.end <= previewClip.start) {
+      if (parseTimeInput(clip.end) <= parseTimeInput(clip.start)) {
         alert("End time 必須大於 Start time");
         return;
       }
-
-      playClip(previewClip);
+      playClip(clip);
     };
 
-    const saveBtn = document.createElement("button");
-    saveBtn.innerText = "Save";
-    saveBtn.onclick = () => {
-      const newStart = parseTimeInput(startInput.value);
-      const newEnd = parseTimeInput(endInput.value);
-
-      if (newEnd <= newStart) {
-        alert("End time 必須大於 Start time");
-        return;
-      }
-
-      const newJp = jpInput.value.trim();
-      if (!newJp) {
-        alert("請輸入日文句子");
-        return;
-      }
-
-      lesson.clips[i] = {
-        start: newStart,
-        end: newEnd,
-        jp: newJp,
-        zh: zhInput.value.trim(),
-        category: categoryInput.value.trim()
-      };
-
-      renderClips();
+    const editBtn = document.createElement("button");
+    editBtn.innerText = "Edit";
+    editBtn.onclick = () => {
+      loadClipIntoEditor(i);
+      seekPlayer(clip.start);
     };
 
     const delBtn = document.createElement("button");
@@ -338,57 +446,19 @@ function renderClips() {
       const ok = confirm(`確定要刪除第 ${i + 1} 個 clip 嗎？`);
       if (!ok) return;
 
+      if (editingClipIndex === i) {
+        exitEditMode(true);
+      } else if (editingClipIndex > i) {
+        editingClipIndex -= 1;
+      }
+
       lesson.clips.splice(i, 1);
       renderClips();
+      setEditorMode(editingClipIndex >= 0);
     };
 
-    const goStartText = document.createElement("span");
-    goStartText.innerText = "Start";
-    goStartText.style.cursor = "pointer";
-    goStartText.style.textDecoration = "underline";
-    goStartText.onclick = () => {
-      seekPlayer(parseTimeInput(startInput.value));
-    };
-
-    const goEndText = document.createElement("span");
-    goEndText.innerText = "End";
-    goEndText.style.cursor = "pointer";
-    goEndText.style.textDecoration = "underline";
-    goEndText.onclick = () => {
-      seekPlayer(parseTimeInput(endInput.value));
-    };
-
-    const row1 = document.createElement("div");
-    row1.style.display = "flex";
-    row1.style.gap = "8px";
-    row1.style.alignItems = "center";
-    row1.style.flexWrap = "wrap";
-    row1.style.marginBottom = "8px";
-
-    row1.append(goStartText, startInput);
-    row1.append(goEndText, endInput);
-    row1.append(playBtn, saveBtn, delBtn);
-
-    const row2 = document.createElement("div");
-    row2.style.display = "flex";
-    row2.style.gap = "8px";
-    row2.style.alignItems = "center";
-    row2.style.flexWrap = "wrap";
-
-    const jpLabel = document.createElement("span");
-    jpLabel.innerText = "JP:";
-
-    const zhLabel = document.createElement("span");
-    zhLabel.innerText = "ZH:";
-
-    const catLabel = document.createElement("span");
-    catLabel.innerText = "Cat:";
-
-    row2.append(jpLabel, jpInput, zhLabel, zhInput, catLabel, categoryInput);
-
-    li.appendChild(row1);
-    li.appendChild(row2);
-
+    actions.append(playBtn, editBtn, delBtn);
+    li.append(meta, jpDiv, zhDiv, actions);
     list.appendChild(li);
   });
 }
@@ -396,15 +466,19 @@ function renderClips() {
 // ---------- playback ----------
 function playClip(clip) {
   stopCurrentClipPlayback();
+
   player.currentTime = clip.start;
   player.play();
 
-  currentPlayInterval = setInterval(() => {
+  const onTimeUpdate = () => {
     if (player.currentTime >= clip.end || player.ended) {
       player.pause();
       stopCurrentClipPlayback();
     }
-  }, 50);
+  };
+
+  currentPlayInterval = onTimeUpdate;
+  player.addEventListener("timeupdate", onTimeUpdate);
 }
 
 player.addEventListener("pause", stopCurrentClipPlayback);

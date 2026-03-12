@@ -25,3 +25,9 @@ media/*
 # lesson data
 lessons/*
 !lessons/.gitkeep
+
+# whisper models (very large files)
+tools/whisper/models/*
+
+# temp audio clips
+*.wav

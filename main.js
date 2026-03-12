@@ -1,11 +1,18 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
+
 
 let mainWindow = null;
 
 const mediaFolderPath = path.join(__dirname, 'media');
 const lessonsFolderPath = path.join(__dirname, 'lessons');
+const ffmpegPath = 'ffmpeg'; // 目前先吃環境變數
+const whisperCliPath = path.join(__dirname, 'tools', 'whisper', 'whisper-cli.exe');
+const whisperModelPath = path.join(__dirname, 'tools', 'whisper', 'models', 'ggml-base.bin');
+const tempFolderPath = path.join(os.tmpdir(), 'language-media-editor-temp');
 
 function ensureAppFolders() {
   if (!fs.existsSync(mediaFolderPath)) {
@@ -14,6 +21,60 @@ function ensureAppFolders() {
   if (!fs.existsSync(lessonsFolderPath)) {
     fs.mkdirSync(lessonsFolderPath, { recursive: true });
   }
+  if (!fs.existsSync(tempFolderPath)) {
+    fs.mkdirSync(tempFolderPath, { recursive: true });
+  }
+}
+
+function safeUnlink(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.warn('safeUnlink failed:', filePath, err);
+  }
+}
+
+function runProcess(exePath, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exePath, args, { windowsHide: true });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('error', (err) => {
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(`Process failed with code ${code}\n${stderr || stdout}`));
+      }
+    });
+  });
+}
+
+function parseWhisperText(output) {
+  const lines = output.split(/\r?\n/);
+
+  const textLines = lines
+    .map(line => line.trim())
+    .filter(line => /^\[\d{2}:\d{2}:\d{2}\.\d{3}\s+-->/.test(line))
+    .map(line => line.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter(Boolean);
+
+  return textLines.join(' ').trim();
 }
 
 function createWindow() {
@@ -114,4 +175,74 @@ ipcMain.handle('import-lesson-file', async () => {
 
   fs.copyFileSync(sourcePath, targetPath);
   return filename;
+});
+
+ipcMain.handle('transcribe-clip', async (_, payload) => {
+  const { mediaFilename, start, end, lang = 'ja' } = payload || {};
+
+  if (!mediaFilename) {
+    throw new Error('mediaFilename is required');
+  }
+
+  const startNum = Number(start);
+  const endNum = Number(end);
+
+  if (!Number.isFinite(startNum) || !Number.isFinite(endNum) || endNum <= startNum) {
+    throw new Error('Invalid start/end time');
+  }
+
+  if (!fs.existsSync(whisperCliPath)) {
+    throw new Error(`whisper-cli.exe not found: ${whisperCliPath}`);
+  }
+
+  if (!fs.existsSync(whisperModelPath)) {
+    throw new Error(`Whisper model not found: ${whisperModelPath}`);
+  }
+
+  const mediaPath = path.join(mediaFolderPath, mediaFilename);
+
+  if (!fs.existsSync(mediaPath)) {
+    throw new Error(`Media file not found: ${mediaPath}`);
+  }
+
+  ensureAppFolders();
+
+  const tempWavPath = path.join(
+    tempFolderPath,
+    `clip-${Date.now()}-${Math.random().toString(36).slice(2)}.wav`
+  );
+
+  try {
+    // 1) ffmpeg 切 clip -> wav
+    await runProcess(ffmpegPath, [
+      '-y',
+      '-i', mediaPath,
+      '-ss', String(startNum),
+      '-t', String(endNum - startNum),
+      '-vn',
+      '-ac', '1',
+      '-ar', '16000',
+      '-c:a', 'pcm_s16le',
+      tempWavPath
+    ]);
+
+    // 2) whisper 辨識
+    const whisperResult = await runProcess(whisperCliPath, [
+      '-m', whisperModelPath,
+      '-f', tempWavPath,
+      '-l', lang
+    ]);
+
+    const transcript = parseWhisperText(
+      `${whisperResult.stdout}\n${whisperResult.stderr}`
+    );
+
+    return {
+      ok: true,
+      text: transcript,
+      tempWavPath
+    };
+  } finally {
+    safeUnlink(tempWavPath);
+  }
 });

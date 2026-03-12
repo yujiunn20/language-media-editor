@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMediaPath: (filename) => ipcRenderer.invoke('get-media-path', filename),
   saveLessonFile: (lesson) => ipcRenderer.invoke('save-lesson-file', lesson),
   importMediaFile: () => ipcRenderer.invoke('import-media-file'),
-  importLessonFile: () => ipcRenderer.invoke('import-lesson-file')
+  importLessonFile: () => ipcRenderer.invoke('import-lesson-file'),
+  transcribeClip: (payload) => ipcRenderer.invoke('transcribe-clip', payload)
 });

@@ -80,3 +80,68 @@ hr {
   color: #555;
   word-break: break-all;
 }
+
+textarea {
+  width: 100%;
+  min-height: 70px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+}
+
+#jpText {
+  font-size: 16px;
+}
+
+#zhText {
+  font-size: 15px;
+  color: #444;
+}
+
+.editor-mode-label {
+  color: #666;
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.clip-card {
+  list-style: none;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.clip-meta {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.clip-jp {
+  font-size: 17px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin-bottom: 8px;
+}
+
+.clip-zh {
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #444;
+  margin-bottom: 8px;
+}
+
+.clip-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#clipList {
+  padding-left: 0;
+}
