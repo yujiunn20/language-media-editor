@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Language Media Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Language Media Editor</h1>
+
+  <div class="panel">
+    <p><strong>Media Folder:</strong> <span id="mediaFolderLabel"></span></p>
+    <p><strong>Lessons Folder:</strong> <span id="lessonsFolderLabel"></span></p>
+  </div>
+
+  <hr>
+
+  <div class="row">
+    <div class="sidebar panel">
+      <h3>Media Library</h3>
+      <button id="importMediaBtn">Import Media</button>
+      <ul id="mediaList"></ul>
+
+      <h3>Lesson Library</h3>
+      <button id="importLessonBtn">Import Lesson</button>
+      <ul id="lessonList"></ul>
+    </div>
+
+    <div class="main panel">
+      <video id="player" controls width="700"></video>
+
+      <div style="margin-top:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button id="setStart">Set Start</button>
+      
+        <span class="label" id="jumpStart" style="cursor:pointer; text-decoration:underline;">Start</span>
+        <input id="startTime" type="number" step="0.1" value="0" style="width:90px;" />
+      
+        <button id="setEnd" style="margin-left:12px;">Set End</button>
+      
+        <span class="label" id="jumpEnd" style="cursor:pointer; text-decoration:underline;">End</span>
+        <input id="endTime" type="number" step="0.1" value="0" style="width:90px;" />
+      </div>
+      
+      <div style="margin-top:12px;">
+        <input id="lessonTitle" placeholder="Lesson title" />
+        <br>
+        <input id="jpText" placeholder="Japanese sentence" />
+        <br>
+        <input id="zhText" placeholder="Chinese translation" />
+        <br>
+        <input id="category" placeholder="Category" />
+        <br>
+        <button id="addClip">Add Clip</button>
+        <button id="saveLesson">Save Lesson</button>
+      </div>
+
+      <h3>Clip List</h3>
+      <ul id="clipList"></ul>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

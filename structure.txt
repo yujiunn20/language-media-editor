@@ -1,0 +1,11 @@
+language-media-editor/
+  main.js
+  preload.js
+  package-lock.json
+  package.json
+  src/
+    index.html
+    app.js
+    style.css
+  media/
+  lessons/

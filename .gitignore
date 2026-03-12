@@ -1,0 +1,27 @@
+# Node modules
+node_modules/
+
+# Electron build
+dist/
+release/
+out/
+win-unpacked/
+*.exe
+
+# logs
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# vscode
+.vscode/
+
+# media data
+media/*
+!media/.gitkeep
+
+# lesson data
+lessons/*
+!lessons/.gitkeep
