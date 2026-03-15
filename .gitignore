@@ -1,33 +1,50 @@
-# Node modules
+# -----------------------------
+# node
+# -----------------------------
 node_modules/
 
-# Electron build
+# -----------------------------
+# build / release
+# -----------------------------
 dist/
 release/
 out/
 win-unpacked/
 *.exe
 
+# -----------------------------
 # logs
+# -----------------------------
 npm-debug.log*
 
-# OS
+# -----------------------------
+# OS junk
+# -----------------------------
 .DS_Store
 Thumbs.db
 
+# -----------------------------
 # vscode
+# -----------------------------
 .vscode/
 
-# media data
-media/*
-!media/.gitkeep
+# -----------------------------
+# runtime data
+# -----------------------------
+data/media/*
+data/lessons/*
+data/temp-*
 
-# lesson data
-lessons/*
-!lessons/.gitkeep
+# keep empty folders
+!data/media/.gitkeep
+!data/lessons/.gitkeep
 
-# whisper models (very large files)
+# -----------------------------
+# whisper models (very large)
+# -----------------------------
 tools/whisper/models/*
 
-# temp audio clips
+# -----------------------------
+# temp audio
+# -----------------------------
 *.wav

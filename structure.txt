@@ -1,11 +1,23 @@
 language-media-editor/
-  main.js
-  preload.js
-  package-lock.json
-  package.json
-  src/
-    index.html
-    app.js
-    style.css
-  media/
-  lessons/
+│
+├─ server/
+│   └─ server.js
+│
+├─ src/
+│   ├─ index.html
+│   ├─ app.js
+│   └─ style.css
+│
+├─ data/
+│   ├─ media/        # video / audio files (not tracked by git)
+│   │   └─ .gitkeep
+│   └─ lessons/      # lesson json files (not tracked by git)
+│       └─ .gitkeep
+│
+├─ main.js           # Electron main process (legacy / optional)
+├─ preload.js        # Electron preload (legacy / optional)
+│
+├─ package.json
+├─ package-lock.json
+├─ .gitignore
+└─ structure.txt

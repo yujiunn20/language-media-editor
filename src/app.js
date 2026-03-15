@@ -160,9 +160,8 @@ function loadLessonToEditor(data) {
 
 // ---------- library ----------
 async function initLibrary() {
-  const paths = await window.electronAPI.getLibraryPaths();
-  document.getElementById("mediaFolderLabel").innerText = paths.mediaFolderPath;
-  document.getElementById("lessonsFolderLabel").innerText = paths.lessonsFolderPath;
+  document.getElementById("mediaFolderLabel").innerText = "data/media";
+  document.getElementById("lessonsFolderLabel").innerText = "data/lessons";
 
   await refreshMediaList();
   await refreshLessonList();
@@ -171,7 +170,10 @@ async function initLibrary() {
 }
 
 async function refreshMediaList() {
-  const files = await window.electronAPI.listMediaFiles();
+  const res = await fetch("/api/media");
+  const data = await res.json();
+
+  const files = (data.media || []).filter(f => !f.startsWith("."));
   const list = document.getElementById("mediaList");
   list.innerHTML = "";
 
@@ -180,9 +182,8 @@ async function refreshMediaList() {
     li.innerText = name;
     li.style.cursor = "pointer";
 
-    li.onclick = async () => {
-      const fullPath = await window.electronAPI.getMediaPath(name);
-      player.src = fullPath;
+    li.onclick = () => {
+      player.src = `/media/${encodeURIComponent(name)}`;
       resetEditorForNewLesson(name);
     };
 
@@ -191,7 +192,10 @@ async function refreshMediaList() {
 }
 
 async function refreshLessonList() {
-  const files = await window.electronAPI.listLessonFiles();
+  const res = await fetch("/api/lessons");
+  const data = await res.json();
+
+  const files = (data.lessons || []).filter(f => !f.startsWith("."));
   const list = document.getElementById("lessonList");
   list.innerHTML = "";
 
@@ -201,12 +205,13 @@ async function refreshLessonList() {
     li.style.cursor = "pointer";
 
     li.onclick = async () => {
-      const data = await window.electronAPI.readLessonFile(name);
-      loadLessonToEditor(data);
+      const res = await fetch(`/api/lessons/${encodeURIComponent(name)}`);
+      const lessonData = await res.json();
+
+      loadLessonToEditor(lessonData);
 
       if (lesson.media) {
-        const fullPath = await window.electronAPI.getMediaPath(lesson.media);
-        player.src = fullPath;
+        player.src = `/media/${encodeURIComponent(lesson.media)}`;
       }
     };
 
@@ -234,12 +239,24 @@ async function transcribeCurrentClip() {
     btn.disabled = true;
     if (status) status.innerText = "Transcribing...";
 
-    const result = await window.electronAPI.transcribeClip({
-      mediaFilename: lesson.media,
-      start: startTime,
-      end: endTime,
-      lang: "ja"
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        mediaFilename: lesson.media,
+        start: startTime,
+        end: endTime,
+        lang: "ja"
+      })
     });
+
+    const result = await res.json();
+
+    if (!res.ok || !result.ok) {
+      throw new Error(result.error || "Transcription failed");
+    }
 
     getJpInput().value = result.text || "";
 
@@ -391,9 +408,27 @@ document.getElementById("saveLesson").onclick = async () => {
 
   lesson.title = title;
 
-  const savedPath = await window.electronAPI.saveLessonFile(lesson);
-  alert(`Saved:\n${savedPath}`);
-  await refreshLessonList();
+  try {
+    const res = await fetch("/api/lessons", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(lesson)
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Save failed");
+    }
+
+    alert(`Saved:\n${data.filename}`);
+    await refreshLessonList();
+  } catch (err) {
+    console.error(err);
+    alert(`儲存失敗：\n${err.message || err}`);
+  }
 };
 
 document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
