@@ -1,6 +1,9 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const multer = require("multer");
+const mime = require("mime-types");
+const { execFile } = require("child_process");
 
 const app = express();
 
@@ -11,9 +14,123 @@ const MEDIA_DIR = path.join(DATA_DIR, "media");
 const LESSONS_DIR = path.join(DATA_DIR, "lessons");
 const SRC_DIR = path.join(__dirname, "..", "src");
 
-const { execFile } = require("child_process");
+/* ================================
+   helpers
+================================ */
+
+function decodeOriginalName(name = "") {
+  try {
+    return Buffer.from(name, "latin1").toString("utf8");
+  } catch {
+    return name;
+  }
+}
+
+function sanitizeFilename(name = "") {
+  return path.basename(name).replace(/[\\/:*?"<>|]/g, "_");
+}
+
+function getUniqueFilename(dir, originalName) {
+  const safeName = sanitizeFilename(originalName);
+  const ext = path.extname(safeName);
+  const base = path.basename(safeName, ext);
+
+  let candidate = safeName;
+  let counter = 1;
+
+  while (fs.existsSync(path.join(dir, candidate))) {
+    candidate = `${base} (${counter})${ext}`;
+    counter++;
+  }
+
+  return candidate;
+}
+
+function ensureDirExists(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+ensureDirExists(DATA_DIR);
+ensureDirExists(MEDIA_DIR);
+ensureDirExists(LESSONS_DIR);
+
+const allowedMediaExts = new Set([
+  ".mp4", ".webm", ".mp3", ".wav", ".m4a", ".mov", ".mkv"
+]);
+
+const allowedLessonExts = new Set([
+  ".json"
+]);
+
+function mediaFileFilter(req, file, cb) {
+  const decodedName = decodeOriginalName(file.originalname);
+  const ext = path.extname(decodedName).toLowerCase();
+
+  if (!allowedMediaExts.has(ext)) {
+    return cb(new Error(`Unsupported media file type: ${ext || "(no extension)"}`));
+  }
+
+  cb(null, true);
+}
+
+function lessonFileFilter(req, file, cb) {
+  const decodedName = decodeOriginalName(file.originalname);
+  const ext = path.extname(decodedName).toLowerCase();
+
+  if (!allowedLessonExts.has(ext)) {
+    return cb(new Error(`Unsupported lesson file type: ${ext || "(no extension)"}`));
+  }
+
+  cb(null, true);
+}
+
+const mediaStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, MEDIA_DIR),
+  filename: (req, file, cb) => {
+    const decodedName = decodeOriginalName(file.originalname);
+    cb(null, getUniqueFilename(MEDIA_DIR, decodedName));
+  }
+});
+
+const lessonStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, LESSONS_DIR),
+  filename: (req, file, cb) => {
+    const decodedName = decodeOriginalName(file.originalname);
+    cb(null, getUniqueFilename(LESSONS_DIR, decodedName));
+  }
+});
+
+const mediaUpload = multer({
+  storage: mediaStorage,
+  fileFilter: mediaFileFilter
+});
+
+const lessonUpload = multer({
+  storage: lessonStorage,
+  fileFilter: lessonFileFilter
+});
+
+/* ================================
+   external tools config
+================================ */
+
 const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
-const WHISPER_PATH = path.join(__dirname, "..", "tools", "whisper", "whisper-cli.exe");
+
+const WHISPER_PATH =
+  process.env.WHISPER_PATH ||
+  path.join(
+    __dirname,
+    "..",
+    "tools",
+    "whisper",
+    process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli"
+  );
+
+const WHISPER_MODEL_PATH =
+  process.env.WHISPER_MODEL_PATH ||
+  path.join(__dirname, "..", "tools", "whisper", "models", "ggml-base.bin");
 
 function cleanWhisperText(raw = "") {
   return raw
@@ -23,9 +140,15 @@ function cleanWhisperText(raw = "") {
 
 app.use(express.static(SRC_DIR));
 
+/* ================================
+   media
+================================ */
+
 app.get("/api/media", (req, res) => {
   try {
-    const files = fs.readdirSync(MEDIA_DIR);
+    const files = fs.readdirSync(MEDIA_DIR).sort((a, b) =>
+      a.localeCompare(b, "zh-Hant")
+    );
 
     res.json({
       ok: true,
@@ -40,7 +163,7 @@ app.get("/api/media", (req, res) => {
 });
 
 app.get("/media/:filename", (req, res) => {
-  const filename = req.params.filename;
+  const filename = path.basename(req.params.filename);
   const filePath = path.join(MEDIA_DIR, filename);
 
   if (!fs.existsSync(filePath)) {
@@ -50,11 +173,13 @@ app.get("/media/:filename", (req, res) => {
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const range = req.headers.range;
+  const contentType = mime.lookup(filePath) || "application/octet-stream";
 
   if (!range) {
     res.writeHead(200, {
       "Content-Length": fileSize,
-      "Content-Type": "video/mp4",
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes"
     });
     fs.createReadStream(filePath).pipe(res);
     return;
@@ -64,23 +189,38 @@ app.get("/media/:filename", (req, res) => {
   const start = parseInt(parts[0], 10);
   const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
 
-  const chunkSize = end - start + 1;
+  if (Number.isNaN(start) || start < 0 || start >= fileSize) {
+    return res.status(416).send("Requested range not satisfiable");
+  }
 
-  const stream = fs.createReadStream(filePath, { start, end });
+  const safeEnd = Number.isNaN(end) || end >= fileSize ? fileSize - 1 : end;
+
+  if (safeEnd < start) {
+    return res.status(416).send("Requested range not satisfiable");
+  }
+
+  const chunkSize = safeEnd - start + 1;
+  const stream = fs.createReadStream(filePath, { start, end: safeEnd });
 
   res.writeHead(206, {
-    "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+    "Content-Range": `bytes ${start}-${safeEnd}/${fileSize}`,
     "Accept-Ranges": "bytes",
     "Content-Length": chunkSize,
-    "Content-Type": "video/mp4",
+    "Content-Type": contentType
   });
 
   stream.pipe(res);
 });
 
+/* ================================
+   lessons
+================================ */
+
 app.get("/api/lessons", (req, res) => {
   try {
-    const files = fs.readdirSync(LESSONS_DIR);
+    const files = fs.readdirSync(LESSONS_DIR).sort((a, b) =>
+      a.localeCompare(b, "zh-Hant")
+    );
 
     res.json({
       ok: true,
@@ -96,7 +236,7 @@ app.get("/api/lessons", (req, res) => {
 
 app.get("/api/lessons/:filename", (req, res) => {
   try {
-    const filename = req.params.filename;
+    const filename = path.basename(req.params.filename);
     const filePath = path.join(LESSONS_DIR, filename);
 
     if (!fs.existsSync(filePath)) {
@@ -108,6 +248,7 @@ app.get("/api/lessons/:filename", (req, res) => {
 
     const text = fs.readFileSync(filePath, "utf-8");
     const data = JSON.parse(text);
+
     res.json(data);
   } catch (err) {
     res.status(500).json({
@@ -128,8 +269,8 @@ app.post("/api/lessons", (req, res) => {
       });
     }
 
-    const safeTitle = lesson.title.replace(/[\\/:*?"<>|]/g, "_").trim();
-    const filename = `${safeTitle}.json`;
+    const safeTitle = sanitizeFilename(lesson.title).trim();
+    const filename = getUniqueFilename(LESSONS_DIR, `${safeTitle}.json`);
     const filePath = path.join(LESSONS_DIR, filename);
 
     fs.writeFileSync(filePath, JSON.stringify(lesson, null, 2), "utf-8");
@@ -146,6 +287,10 @@ app.post("/api/lessons", (req, res) => {
     });
   }
 });
+
+/* ================================
+   transcribe
+================================ */
 
 app.post("/api/transcribe", (req, res) => {
   const { mediaFilename, start, end, lang } = req.body || {};
@@ -164,7 +309,8 @@ app.post("/api/transcribe", (req, res) => {
     });
   }
 
-  const mediaPath = path.join(MEDIA_DIR, mediaFilename);
+  const safeMediaFilename = path.basename(mediaFilename);
+  const mediaPath = path.join(MEDIA_DIR, safeMediaFilename);
 
   if (!fs.existsSync(mediaPath)) {
     return res.status(404).json({
@@ -190,6 +336,10 @@ app.post("/api/transcribe", (req, res) => {
     ],
     (ffmpegErr) => {
       if (ffmpegErr) {
+        if (fs.existsSync(tempWavPath)) {
+          fs.unlinkSync(tempWavPath);
+        }
+
         return res.status(500).json({
           ok: false,
           error: `ffmpeg failed: ${ffmpegErr.message}`
@@ -201,16 +351,13 @@ app.post("/api/transcribe", (req, res) => {
         [
           "-f", tempWavPath,
           "-l", lang || "ja",
-          "-m", path.join(__dirname, "..", "tools", "whisper", "models", "ggml-base.bin"),
+          "-m", WHISPER_MODEL_PATH,
           "-otxt"
-        ],      
+        ],
         { cwd: path.join(__dirname, "..", "tools", "whisper") },
         (whisperErr, stdout, stderr) => {
           try {
-            const txtPath = path.join(
-              path.dirname(tempWavPath),
-              path.basename(tempWavPath, ".wav") + ".txt"
-            );
+            const txtPath = `${tempWavPath}.txt`;
             let text = "";
 
             if (fs.existsSync(txtPath)) {
@@ -249,6 +396,56 @@ app.post("/api/transcribe", (req, res) => {
       );
     }
   );
+});
+
+/* ================================
+   uploads
+================================ */
+
+app.post("/api/upload-media", (req, res) => {
+  mediaUpload.single("file")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        ok: false,
+        error: err.message
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No file uploaded"
+      });
+    }
+
+    res.json({
+      ok: true,
+      filename: req.file.filename
+    });
+  });
+});
+
+app.post("/api/upload-lesson", (req, res) => {
+  lessonUpload.single("file")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        ok: false,
+        error: err.message
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No file uploaded"
+      });
+    }
+
+    res.json({
+      ok: true,
+      filename: req.file.filename
+    });
+  });
 });
 
 app.listen(3000, () => {

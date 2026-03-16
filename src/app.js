@@ -275,20 +275,66 @@ async function transcribeCurrentClip() {
 }
 
 // ---------- import buttons ----------
-document.getElementById("importMediaBtn").onclick = async () => {
-  const filename = await window.electronAPI.importMediaFile();
-  if (filename) {
+document.getElementById("importMediaBtn").onclick = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "video/*,audio/*,.mkv,.mov,.m4a";
+
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch("/api/upload-media", {
+      method: "POST",
+      body: form
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      alert(`media upload failed:\n${data.error || res.statusText}`);
+      return;
+    }
+
     await refreshMediaList();
-    alert(`已匯入 media:\n${filename}`);
-  }
+    alert(`已匯入 media:\n${data.filename}`);
+  };
+
+  input.click();
 };
 
-document.getElementById("importLessonBtn").onclick = async () => {
-  const filename = await window.electronAPI.importLessonFile();
-  if (filename) {
+document.getElementById("importLessonBtn").onclick = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json";
+
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch("/api/upload-lesson", {
+      method: "POST",
+      body: form
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      alert(`lesson upload failed:\n${data.error || res.statusText}`);
+      return;
+    }
+
     await refreshLessonList();
-    alert(`已匯入 lesson:\n${filename}`);
-  }
+    alert(`已匯入 lesson:\n${data.filename}`);
+  };
+
+  input.click();
 };
 
 // ---------- start / end controls ----------
