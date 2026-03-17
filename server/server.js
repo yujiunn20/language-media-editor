@@ -153,14 +153,237 @@ function cleanWhisperText(raw = "") {
 app.use(express.static(SRC_DIR));
 
 /* ================================
+   folders
+================================ */
+
+app.get("/api/folders", (req, res) => {
+  try {
+    const kind = String(req.query.kind || "").trim();
+
+    if (kind !== "media" && kind !== "lesson") {
+      return res.status(400).json({
+        ok: false,
+        error: "kind must be media or lesson"
+      });
+    }
+
+    const rows = db.prepare(`
+      SELECT * FROM folders
+      WHERE kind = ?
+      ORDER BY
+        CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END,
+        parent_id,
+        name COLLATE NOCASE
+    `).all(kind);
+
+    res.json({
+      ok: true,
+      folders: rows
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.post("/api/folders", (req, res) => {
+  try {
+    const { name, kind, parent_id } = req.body;
+
+    const trimmedName = String(name || "").trim();
+
+    if (!trimmedName) {
+      return res.status(400).json({
+        ok: false,
+        error: "name required"
+      });
+    }
+
+    if (kind !== "media" && kind !== "lesson") {
+      return res.status(400).json({
+        ok: false,
+        error: "kind must be media or lesson"
+      });
+    }
+
+    let normalizedParentId = null;
+
+    if (parent_id !== null && parent_id !== undefined && parent_id !== "") {
+      normalizedParentId = Number(parent_id);
+
+      if (!Number.isInteger(normalizedParentId) || normalizedParentId <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid parent_id"
+        });
+      }
+
+      const parent = db.prepare(`
+        SELECT * FROM folders WHERE id = ?
+      `).get(normalizedParentId);
+
+      if (!parent) {
+        return res.status(400).json({
+          ok: false,
+          error: "parent folder not found"
+        });
+      }
+
+      if (parent.kind !== kind) {
+        return res.status(400).json({
+          ok: false,
+          error: "parent folder kind mismatch"
+        });
+      }
+    }
+
+    const duplicate = db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE name = ?
+        AND kind = ?
+        AND (
+          (parent_id IS NULL AND ? IS NULL)
+          OR parent_id = ?
+        )
+    `).get(trimmedName, kind, normalizedParentId, normalizedParentId);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: "同一層已有同名資料夾"
+      });
+    }
+
+    const result = db.prepare(`
+      INSERT INTO folders (name, kind, parent_id, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      trimmedName,
+      kind,
+      normalizedParentId,
+      new Date().toISOString()
+    );
+
+    res.json({
+      ok: true,
+      id: result.lastInsertRowid,
+      name: trimmedName,
+      kind,
+      parent_id: normalizedParentId
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.delete("/api/folders/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid folder id"
+      });
+    }
+
+    const folder = db.prepare(`
+      SELECT * FROM folders WHERE id = ?
+    `).get(id);
+
+    if (!folder) {
+      return res.status(404).json({
+        ok: false,
+        error: "Folder not found"
+      });
+    }
+
+    const child = db.prepare(`
+      SELECT id FROM folders WHERE parent_id = ? LIMIT 1
+    `).get(id);
+
+    if (child) {
+      return res.status(400).json({
+        ok: false,
+        error: "資料夾內還有子資料夾，不能刪除"
+      });
+    }
+
+    const mediaItem = db.prepare(`
+      SELECT id FROM media_files WHERE folder_id = ? LIMIT 1
+    `).get(id);
+
+    if (mediaItem) {
+      return res.status(400).json({
+        ok: false,
+        error: "資料夾內還有 media，不能刪除"
+      });
+    }
+
+    const lessonItem = db.prepare(`
+      SELECT id FROM lessons WHERE folder_id = ? LIMIT 1
+    `).get(id);
+
+    if (lessonItem) {
+      return res.status(400).json({
+        ok: false,
+        error: "資料夾內還有 lesson，不能刪除"
+      });
+    }
+
+    db.prepare(`
+      DELETE FROM folders WHERE id = ?
+    `).run(id);
+
+    res.json({
+      ok: true,
+      id
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+/* ================================
    media
 ================================ */
 
 app.get("/api/media", (req, res) => {
   try {
-    const rows = db.prepare(`
-      SELECT * FROM media_files ORDER BY created_at DESC
-    `).all();
+    const folderIdRaw = req.query.folder_id;
+
+    let rows;
+    if (folderIdRaw === undefined || folderIdRaw === null || folderIdRaw === "") {
+      rows = db.prepare(`
+        SELECT * FROM media_files
+        WHERE folder_id IS NULL
+        ORDER BY created_at DESC
+      `).all();
+    } else {
+      const folderId = Number(folderIdRaw);
+
+      if (!Number.isInteger(folderId) || folderId <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid folder_id"
+        });
+      }
+
+      rows = db.prepare(`
+        SELECT * FROM media_files
+        WHERE folder_id = ?
+        ORDER BY created_at DESC
+      `).all(folderId);
+    }
 
     const existingRows = rows.filter((row) => {
       const filePath = path.join(MEDIA_DIR, row.filename);
@@ -324,11 +547,40 @@ app.get("/media/:filename", (req, res) => {
 ================================ */
 
 app.get("/api/lessons", (req, res) => {
-  const lessons = db.prepare(`
-    SELECT * FROM lessons ORDER BY created_at DESC
-  `).all();
+  try {
+    const folderIdRaw = req.query.folder_id;
 
-  res.json(lessons);
+    let lessons;
+    if (folderIdRaw === undefined || folderIdRaw === null || folderIdRaw === "") {
+      lessons = db.prepare(`
+        SELECT * FROM lessons
+        WHERE folder_id IS NULL
+        ORDER BY created_at DESC
+      `).all();
+    } else {
+      const folderId = Number(folderIdRaw);
+
+      if (!Number.isInteger(folderId) || folderId <= 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid folder_id"
+        });
+      }
+
+      lessons = db.prepare(`
+        SELECT * FROM lessons
+        WHERE folder_id = ?
+        ORDER BY created_at DESC
+      `).all(folderId);
+    }
+
+    res.json(lessons);
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
 });
 
 app.get("/api/lessons/:id", (req, res) => {
@@ -449,7 +701,7 @@ app.patch("/api/lessons/:id", (req, res) => {
 });
 
 app.post("/api/lessons", (req, res) => {
-  const { id, title, media, clips } = req.body;
+  const { id, title, media, clips, folder_id } = req.body;
   const now = new Date().toISOString();
 
   let lessonId = id;
@@ -458,9 +710,9 @@ app.post("/api/lessons", (req, res) => {
     // ===== update =====
     db.prepare(`
       UPDATE lessons
-      SET title = ?, media_filename = ?, updated_at = ?
+      SET title = ?, media_filename = ?, folder_id = ?, updated_at = ?
       WHERE id = ?
-    `).run(title, media, now, id);
+    `).run(title, media, folder_id ?? null, now, id);
 
     // 刪舊 clips
     db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
@@ -468,9 +720,9 @@ app.post("/api/lessons", (req, res) => {
   } else {
     // ===== create =====
     const result = db.prepare(`
-      INSERT INTO lessons (title, media_filename, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-    `).run(title, media, now, now);
+      INSERT INTO lessons (title, media_filename, folder_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(title, media, folder_id ?? null, now, now);
 
     lessonId = result.lastInsertRowid;
   }
@@ -631,10 +883,19 @@ app.post("/api/upload-media", (req, res) => {
     const now = new Date().toISOString();
 
     try {
+      const folder_id = req.body.folder_id
+        ? Number(req.body.folder_id)
+        : null;
+
       db.prepare(`
-        INSERT INTO media_files (filename, display_name, created_at)
-        VALUES (?, ?, ?)
-      `).run(filename, filename, now);
+        INSERT INTO media_files (filename, display_name, folder_id, created_at)
+        VALUES (?, ?, ?, ?)
+      `).run(
+        filename,
+        filename,
+        folder_id,
+        new Date().toISOString()
+      );
 
       res.json({
         ok: true,
@@ -667,6 +928,10 @@ app.post("/api/upload-lesson", (req, res) => {
 
     const uploadedPath = req.file.path;
 
+    const folder_id = req.body.folder_id
+      ? Number(req.body.folder_id)
+      : null;
+
     try {
       const raw = fs.readFileSync(uploadedPath, "utf-8");
       const parsed = JSON.parse(raw);
@@ -698,11 +963,11 @@ app.post("/api/upload-lesson", (req, res) => {
       const now = new Date().toISOString();
 
       const insertLesson = db.prepare(`
-        INSERT INTO lessons (title, media_filename, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO lessons (title, media_filename, folder_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
       `);
-
-      const result = insertLesson.run(title, media || null, now, now);
+      
+      const result = insertLesson.run(title, media || null, folder_id, now, now);
       const lessonId = result.lastInsertRowid;
 
       const insertClip = db.prepare(`

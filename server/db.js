@@ -5,10 +5,19 @@ const db = new Database(path.join(__dirname, "app.db"));
 
 // ===== init =====
 db.exec(`
+CREATE TABLE IF NOT EXISTS folders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  parent_id INTEGER,
+  created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
   media_filename TEXT,
+  folder_id INTEGER,
   created_at TEXT,
   updated_at TEXT
 );
@@ -29,8 +38,20 @@ CREATE TABLE IF NOT EXISTS media_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   filename TEXT NOT NULL UNIQUE,
   display_name TEXT,
+  folder_id INTEGER,
   created_at TEXT
 );
 `);
+
+// ===== migration for old existing DB =====
+const lessonCols = db.prepare("PRAGMA table_info(lessons)").all();
+if (!lessonCols.some(col => col.name === "folder_id")) {
+  db.exec("ALTER TABLE lessons ADD COLUMN folder_id INTEGER");
+}
+
+const mediaCols = db.prepare("PRAGMA table_info(media_files)").all();
+if (!mediaCols.some(col => col.name === "folder_id")) {
+  db.exec("ALTER TABLE media_files ADD COLUMN folder_id INTEGER");
+}
 
 module.exports = db;

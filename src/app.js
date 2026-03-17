@@ -11,6 +11,8 @@ let startTime = 0;
 let endTime = 0;
 let currentPlayInterval = null;
 let editingClipIndex = -1;
+let currentMediaFolderId = null;
+let currentLessonFolderId = null;
 
 // ---------- helpers ----------
 function getStartInput() {
@@ -19,6 +21,55 @@ function getStartInput() {
 
 function getEndInput() {
   return document.getElementById("endTime");
+}
+
+async function fetchFolders(kind) {
+  const res = await fetch(`/api/folders?kind=${encodeURIComponent(kind)}`);
+  const data = await res.json();
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Load folders failed");
+  }
+
+  return data.folders || [];
+}
+
+function renderFolderSelect(selectEl, folders, selectedId) {
+  selectEl.innerHTML = "";
+
+  const rootOption = document.createElement("option");
+  rootOption.value = "";
+  rootOption.innerText = "(root)";
+  selectEl.appendChild(rootOption);
+
+  folders.forEach((folder) => {
+    const option = document.createElement("option");
+    option.value = folder.id;
+    option.innerText = folder.name;
+
+    if (selectedId != null && Number(selectedId) === folder.id) {
+      option.selected = true;
+    }
+
+    selectEl.appendChild(option);
+  });
+}
+
+async function refreshFolderSelectors() {
+  const mediaFolders = await fetchFolders("media");
+  const lessonFolders = await fetchFolders("lesson");
+
+  renderFolderSelect(
+    document.getElementById("mediaFolderSelect"),
+    mediaFolders,
+    currentMediaFolderId
+  );
+
+  renderFolderSelect(
+    document.getElementById("lessonFolderSelect"),
+    lessonFolders,
+    currentLessonFolderId
+  );
 }
 
 function getLessonTitleInput() {
@@ -166,6 +217,7 @@ async function initLibrary() {
   document.getElementById("mediaFolderLabel").innerText = "data/media";
   document.getElementById("lessonsFolderLabel").innerText = "data/lessons";
 
+  await refreshFolderSelectors();
   await refreshMediaList();
   await refreshLessonList();
   syncInputsFromStartEnd();
@@ -173,7 +225,11 @@ async function initLibrary() {
 }
 
 async function refreshMediaList() {
-  const res = await fetch("/api/media");
+  const query = currentMediaFolderId != null
+    ? `?folder_id=${currentMediaFolderId}`
+    : "";
+
+  const res = await fetch(`/api/media${query}`);
   const data = await res.json();
 
   const list = document.getElementById("mediaList");
@@ -265,7 +321,11 @@ async function refreshMediaList() {
 }
 
 async function refreshLessonList() {
-  const res = await fetch("/api/lessons");
+  const query = currentLessonFolderId != null
+    ? `?folder_id=${currentLessonFolderId}`
+    : "";
+
+  const res = await fetch(`/api/lessons${query}`);
   const lessons = await res.json();
 
   const list = document.getElementById("lessonList");
@@ -444,6 +504,10 @@ document.getElementById("importMediaBtn").onclick = () => {
     const form = new FormData();
     form.append("file", file);
 
+    if (currentMediaFolderId != null) {
+      form.append("folder_id", currentMediaFolderId);
+    }
+
     const res = await fetch("/api/upload-media", {
       method: "POST",
       body: form
@@ -474,6 +538,10 @@ document.getElementById("importLessonBtn").onclick = () => {
 
     const form = new FormData();
     form.append("file", file);
+      
+    if (currentLessonFolderId != null) {
+      form.append("folder_id", currentLessonFolderId);
+    }
 
     const res = await fetch("/api/upload-lesson", {
       method: "POST",
@@ -517,6 +585,137 @@ document.getElementById("jumpEnd").onclick = () => {
 
 getStartInput().addEventListener("change", syncStartEndFromInputs);
 getEndInput().addEventListener("change", syncStartEndFromInputs);
+
+// ---------- folders control ----------
+document.getElementById("mediaFolderSelect").addEventListener("change", async (e) => {
+  currentMediaFolderId = e.target.value ? Number(e.target.value) : null;
+  await refreshMediaList();
+});
+
+document.getElementById("lessonFolderSelect").addEventListener("change", async (e) => {
+  currentLessonFolderId = e.target.value ? Number(e.target.value) : null;
+  await refreshLessonList();
+});
+
+document.getElementById("newMediaFolderBtn").onclick = async () => {
+  const name = prompt("輸入新的 media 資料夾名稱");
+  if (!name) return;
+
+  try {
+    const res = await fetch("/api/folders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name,
+        kind: "media",
+        parent_id: currentMediaFolderId
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Create folder failed");
+    }
+
+    await refreshFolderSelectors();
+    currentMediaFolderId = data.id;
+    document.getElementById("mediaFolderSelect").value = String(data.id);
+    await refreshMediaList();
+  } catch (err) {
+    alert(`新增資料夾失敗：\n${err.message}`);
+  }
+};
+
+document.getElementById("newLessonFolderBtn").onclick = async () => {
+  const name = prompt("輸入新的 lesson 資料夾名稱");
+  if (!name) return;
+
+  try {
+    const res = await fetch("/api/folders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name,
+        kind: "lesson",
+        parent_id: currentLessonFolderId
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Create folder failed");
+    }
+
+    await refreshFolderSelectors();
+    currentLessonFolderId = data.id;
+    document.getElementById("lessonFolderSelect").value = String(data.id);
+    await refreshLessonList();
+  } catch (err) {
+    alert(`新增資料夾失敗：\n${err.message}`);
+  }
+};
+
+document.getElementById("deleteMediaFolderBtn").onclick = async () => {
+  if (currentMediaFolderId == null) {
+    alert("現在是 root，不能刪除");
+    return;
+  }
+
+  const ok = confirm("確定要刪除目前的 media 資料夾嗎？");
+  if (!ok) return;
+
+  try {
+    const res = await fetch(`/api/folders/${currentMediaFolderId}`, {
+      method: "DELETE"
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Delete folder failed");
+    }
+
+    currentMediaFolderId = null;
+    await refreshFolderSelectors();
+    await refreshMediaList();
+  } catch (err) {
+    alert(`刪除資料夾失敗：\n${err.message}`);
+  }
+};
+
+document.getElementById("deleteLessonFolderBtn").onclick = async () => {
+  if (currentLessonFolderId == null) {
+    alert("現在是 root，不能刪除");
+    return;
+  }
+
+  const ok = confirm("確定要刪除目前的 lesson 資料夾嗎？");
+  if (!ok) return;
+
+  try {
+    const res = await fetch(`/api/folders/${currentLessonFolderId}`, {
+      method: "DELETE"
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Delete folder failed");
+    }
+
+    currentLessonFolderId = null;
+    await refreshFolderSelectors();
+    await refreshLessonList();
+  } catch (err) {
+    alert(`刪除資料夾失敗：\n${err.message}`);
+  }
+};
 
 // ---------- add / update clip ----------
 document.getElementById("addClip").onclick = () => {
@@ -617,7 +816,10 @@ document.getElementById("saveLesson").onclick = async () => {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(lesson)
+      body: JSON.stringify({
+        ...lesson,
+        folder_id: currentLessonFolderId
+      })
     });
 
     const data = await res.json();

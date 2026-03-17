@@ -18,11 +18,27 @@
   <div class="row">
     <div class="sidebar panel">
       <h3>Media Library</h3>
+
+      <select id="mediaFolderSelect">
+        <option value="">(root)</option>
+      </select>
+
+      <button id="newMediaFolderBtn">New Folder</button>
+      <button id="deleteMediaFolderBtn">Delete Folder</button>
       <button id="importMediaBtn">Import Media</button>
+
       <ul id="mediaList"></ul>
 
       <h3>Lesson Library</h3>
+
+      <select id="lessonFolderSelect">
+        <option value="">(root)</option>
+      </select>
+      
+      <button id="newLessonFolderBtn">New Folder</button>
+      <button id="deleteLessonFolderBtn">Delete Folder</button>
       <button id="importLessonBtn">Import Lesson</button>
+
       <ul id="lessonList"></ul>
     </div>
 
