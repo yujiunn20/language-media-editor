@@ -229,6 +229,35 @@ async function refreshMediaList() {
       }
     };
 
+    const renameBtn = document.createElement("button");
+    renameBtn.innerText = "Rename";
+
+    renameBtn.onclick = async (e) => {
+      e.stopPropagation();
+    
+      const newName = prompt("輸入新的名稱", item.display_name || item.filename);
+      if (!newName) return;
+    
+      try {
+        const res = await fetch(`/api/media/${encodeURIComponent(item.filename)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: newName })
+        });
+      
+        const result = await res.json();
+      
+        if (!res.ok || !result.ok) {
+          throw new Error(result.error || "Rename failed");
+        }
+      
+        await refreshMediaList();
+      } catch (err) {
+        alert(`改名失敗：\n${err.message}`);
+      }
+    };
+
+    actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);
     li.append(nameDiv, actions);
     list.appendChild(li);
@@ -303,6 +332,44 @@ async function refreshLessonList() {
       }
     };
 
+    const renameBtn = document.createElement("button");
+    renameBtn.innerText = "Rename";
+
+    renameBtn.onclick = async (e) => {
+      e.stopPropagation();
+    
+      const newName = prompt("輸入新的 lesson 名稱", lessonItem.title);
+      if (!newName) return;
+    
+      try {
+        const res = await fetch(`/api/lessons/${lessonItem.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ title: newName })
+        });
+      
+        const result = await res.json();
+      
+        if (!res.ok || !result.ok) {
+          throw new Error(result.error || "Rename failed");
+        }
+      
+        await refreshLessonList();
+      
+        // 👉 如果正在編輯這個 lesson，也同步更新
+        if (lesson.id === lessonItem.id) {
+          lesson.title = result.title;
+          getLessonTitleInput().value = result.title;
+        }
+      
+      } catch (err) {
+        alert(`改名失敗：\n${err.message}`);
+      }
+    };
+
+    actions.appendChild(renameBtn);
     actions.appendChild(deleteBtn);
     li.append(nameDiv, actions);
     list.appendChild(li);

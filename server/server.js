@@ -227,6 +227,48 @@ app.delete("/api/media/:filename", (req, res) => {
   }
 });
 
+app.patch("/api/media/:filename", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const { display_name } = req.body;
+
+    if (!display_name || !display_name.trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "display_name required"
+      });
+    }
+
+    const row = db.prepare(`
+      SELECT * FROM media_files WHERE filename = ?
+    `).get(filename);
+
+    if (!row) {
+      return res.status(404).json({
+        ok: false,
+        error: "Media not found"
+      });
+    }
+
+    db.prepare(`
+      UPDATE media_files
+      SET display_name = ?
+      WHERE filename = ?
+    `).run(display_name.trim(), filename);
+
+    res.json({
+      ok: true,
+      filename,
+      display_name
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
 app.get("/media/:filename", (req, res) => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(MEDIA_DIR, filename);
@@ -339,6 +381,67 @@ app.delete("/api/lessons/:id", (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.patch("/api/lessons/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { title } = req.body;
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid lesson id"
+      });
+    }
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "title required"
+      });
+    }
+
+    const existing = db.prepare(`
+      SELECT * FROM lessons WHERE id = ?
+    `).get(id);
+
+    if (!existing) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lesson not found"
+      });
+    }
+
+    // 👉 檢查重名（避免衝突）
+    const duplicate = db.prepare(`
+      SELECT id FROM lessons WHERE title = ? AND id != ?
+    `).get(title.trim(), id);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: `已有同名 lesson：${title}`
+      });
+    }
+
+    db.prepare(`
+      UPDATE lessons
+      SET title = ?, updated_at = ?
+      WHERE id = ?
+    `).run(title.trim(), new Date().toISOString(), id);
+
+    res.json({
+      ok: true,
+      id,
+      title: title.trim()
+    });
+  } catch (err) {
+    res.status(500).json({
       ok: false,
       error: err.message
     });
