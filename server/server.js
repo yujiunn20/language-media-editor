@@ -1,6 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const db = require("./db");
 const multer = require("multer");
 const mime = require("mime-types");
 const { execFile } = require("child_process");
@@ -125,13 +126,24 @@ const WHISPER_PATH =
     "..",
     "tools",
     "whisper",
+    "whisper",
+    "build",
+    "bin",
     process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli"
   );
 
 const WHISPER_MODEL_PATH =
   process.env.WHISPER_MODEL_PATH ||
-  path.join(__dirname, "..", "tools", "whisper", "models", "ggml-base.bin");
-
+  path.join(
+    __dirname,
+    "..",
+    "tools",
+    "whisper",
+    "whisper",
+    "models",
+    "ggml-base.bin"
+  );
+  
 function cleanWhisperText(raw = "") {
   return raw
     .replace(/\[[^\]]+\]\s*/g, "")
@@ -146,16 +158,69 @@ app.use(express.static(SRC_DIR));
 
 app.get("/api/media", (req, res) => {
   try {
-    const files = fs.readdirSync(MEDIA_DIR).sort((a, b) =>
-      a.localeCompare(b, "zh-Hant")
-    );
+    const rows = db.prepare(`
+      SELECT * FROM media_files ORDER BY created_at DESC
+    `).all();
+
+    const existingRows = rows.filter((row) => {
+      const filePath = path.join(MEDIA_DIR, row.filename);
+      return fs.existsSync(filePath);
+    });
 
     res.json({
       ok: true,
-      media: files
+      media: existingRows
     });
   } catch (err) {
     res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.delete("/api/media/:filename", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+
+    const mediaRow = db.prepare(`
+      SELECT * FROM media_files WHERE filename = ?
+    `).get(filename);
+
+    if (!mediaRow) {
+      return res.status(404).json({
+        ok: false,
+        error: "Media not found in database"
+      });
+    }
+
+    const usedLesson = db.prepare(`
+      SELECT id, title FROM lessons WHERE media_filename = ? LIMIT 1
+    `).get(filename);
+
+    if (usedLesson) {
+      return res.status(400).json({
+        ok: false,
+        error: `此 media 正被 lesson 使用中：${usedLesson.title}`
+      });
+    }
+
+    const filePath = path.join(MEDIA_DIR, filename);
+
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    db.prepare(`
+      DELETE FROM media_files WHERE filename = ?
+    `).run(filename);
+
+    return res.json({
+      ok: true,
+      filename
+    });
+  } catch (err) {
+    return res.status(500).json({
       ok: false,
       error: err.message
     });
@@ -217,41 +282,63 @@ app.get("/media/:filename", (req, res) => {
 ================================ */
 
 app.get("/api/lessons", (req, res) => {
-  try {
-    const files = fs.readdirSync(LESSONS_DIR).sort((a, b) =>
-      a.localeCompare(b, "zh-Hant")
-    );
+  const lessons = db.prepare(`
+    SELECT * FROM lessons ORDER BY created_at DESC
+  `).all();
 
-    res.json({
-      ok: true,
-      lessons: files
-    });
-  } catch (err) {
-    res.status(500).json({
-      ok: false,
-      error: err.message
-    });
-  }
+  res.json(lessons);
 });
 
-app.get("/api/lessons/:filename", (req, res) => {
-  try {
-    const filename = path.basename(req.params.filename);
-    const filePath = path.join(LESSONS_DIR, filename);
+app.get("/api/lessons/:id", (req, res) => {
+  const { id } = req.params;
 
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
+  const lesson = db.prepare(`
+    SELECT * FROM lessons WHERE id = ?
+  `).get(id);
+
+  if (!lesson) return res.status(404).send("Not found");
+
+  const clips = db.prepare(`
+    SELECT * FROM clips WHERE lesson_id = ? ORDER BY sort_order
+  `).all(id);
+
+  lesson.clips = clips;
+
+  res.json(lesson);
+});
+
+app.delete("/api/lessons/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
         ok: false,
-        error: "Lesson file not found"
+        error: "Invalid lesson id"
       });
     }
 
-    const text = fs.readFileSync(filePath, "utf-8");
-    const data = JSON.parse(text);
+    const lessonRow = db.prepare(`
+      SELECT * FROM lessons WHERE id = ?
+    `).get(id);
 
-    res.json(data);
+    if (!lessonRow) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lesson not found"
+      });
+    }
+
+    db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
+    db.prepare(`DELETE FROM lessons WHERE id = ?`).run(id);
+
+    return res.json({
+      ok: true,
+      id,
+      title: lessonRow.title
+    });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
       error: err.message
     });
@@ -259,33 +346,52 @@ app.get("/api/lessons/:filename", (req, res) => {
 });
 
 app.post("/api/lessons", (req, res) => {
-  try {
-    const lesson = req.body;
+  const { id, title, media, clips } = req.body;
+  const now = new Date().toISOString();
 
-    if (!lesson || !lesson.title) {
-      return res.status(400).json({
-        ok: false,
-        error: "Lesson title is required"
-      });
-    }
+  let lessonId = id;
 
-    const safeTitle = sanitizeFilename(lesson.title).trim();
-    const filename = getUniqueFilename(LESSONS_DIR, `${safeTitle}.json`);
-    const filePath = path.join(LESSONS_DIR, filename);
+  if (id) {
+    // ===== update =====
+    db.prepare(`
+      UPDATE lessons
+      SET title = ?, media_filename = ?, updated_at = ?
+      WHERE id = ?
+    `).run(title, media, now, id);
 
-    fs.writeFileSync(filePath, JSON.stringify(lesson, null, 2), "utf-8");
+    // 刪舊 clips
+    db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
 
-    res.json({
-      ok: true,
-      filename,
-      path: filePath
-    });
-  } catch (err) {
-    res.status(500).json({
-      ok: false,
-      error: err.message
-    });
+  } else {
+    // ===== create =====
+    const result = db.prepare(`
+      INSERT INTO lessons (title, media_filename, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(title, media, now, now);
+
+    lessonId = result.lastInsertRowid;
   }
+
+  // ===== 插入 clips =====
+  const insertClip = db.prepare(`
+    INSERT INTO clips
+    (lesson_id, start, end, jp, zh, category, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  clips.forEach((c, i) => {
+    insertClip.run(
+      lessonId,
+      c.start,
+      c.end,
+      c.jp,
+      c.zh,
+      c.category,
+      i
+    );
+  });
+
+  res.json({ success: true, id: lessonId });
 });
 
 /* ================================
@@ -354,7 +460,7 @@ app.post("/api/transcribe", (req, res) => {
           "-m", WHISPER_MODEL_PATH,
           "-otxt"
         ],
-        { cwd: path.join(__dirname, "..", "tools", "whisper") },
+        { cwd: path.join(__dirname, "..", "tools", "whisper", "whisper") },
         (whisperErr, stdout, stderr) => {
           try {
             const txtPath = `${tempWavPath}.txt`;
@@ -418,10 +524,25 @@ app.post("/api/upload-media", (req, res) => {
       });
     }
 
-    res.json({
-      ok: true,
-      filename: req.file.filename
-    });
+    const filename = req.file.filename;
+    const now = new Date().toISOString();
+
+    try {
+      db.prepare(`
+        INSERT INTO media_files (filename, display_name, created_at)
+        VALUES (?, ?, ?)
+      `).run(filename, filename, now);
+
+      res.json({
+        ok: true,
+        filename
+      });
+    } catch (e) {
+      return res.status(500).json({
+        ok: false,
+        error: e.message
+      });
+    }
   });
 });
 
@@ -441,10 +562,81 @@ app.post("/api/upload-lesson", (req, res) => {
       });
     }
 
-    res.json({
-      ok: true,
-      filename: req.file.filename
-    });
+    const uploadedPath = req.file.path;
+
+    try {
+      const raw = fs.readFileSync(uploadedPath, "utf-8");
+      const parsed = JSON.parse(raw);
+
+      const title = String(parsed.title || "").trim();
+      const media = String(parsed.media || "").trim();
+      const clips = Array.isArray(parsed.clips) ? parsed.clips : [];
+
+      if (!title) {
+        fs.unlinkSync(uploadedPath);
+        return res.status(400).json({
+          ok: false,
+          error: "Lesson JSON 缺少 title"
+        });
+      }
+
+      const existing = db.prepare(`
+        SELECT id FROM lessons WHERE title = ?
+      `).get(title);
+
+      if (existing) {
+        fs.unlinkSync(uploadedPath);
+        return res.status(409).json({
+          ok: false,
+          error: `已存在同名 lesson：${title}`
+        });
+      }
+
+      const now = new Date().toISOString();
+
+      const insertLesson = db.prepare(`
+        INSERT INTO lessons (title, media_filename, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+      `);
+
+      const result = insertLesson.run(title, media || null, now, now);
+      const lessonId = result.lastInsertRowid;
+
+      const insertClip = db.prepare(`
+        INSERT INTO clips
+        (lesson_id, start, end, jp, zh, category, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      clips.forEach((clip, i) => {
+        insertClip.run(
+          lessonId,
+          Number(clip.start) || 0,
+          Number(clip.end) || 0,
+          clip.jp || "",
+          clip.zh || "",
+          clip.category || "",
+          i
+        );
+      });
+
+      fs.unlinkSync(uploadedPath);
+
+      return res.json({
+        ok: true,
+        id: lessonId,
+        title
+      });
+    } catch (error) {
+      if (fs.existsSync(uploadedPath)) {
+        fs.unlinkSync(uploadedPath);
+      }
+
+      return res.status(400).json({
+        ok: false,
+        error: `匯入 lesson 失敗：${error.message}`
+      });
+    }
   });
 });
 

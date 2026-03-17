@@ -1,6 +1,7 @@
 const player = document.getElementById("player");
 
 const lesson = {
+  id: null,
   title: "",
   media: "",
   clips: []
@@ -139,6 +140,7 @@ function loadClipIntoEditor(index) {
 }
 
 function resetEditorForNewLesson(selectedMediaName = "") {
+  lesson.id = null;
   lesson.title = "";
   lesson.media = selectedMediaName;
   lesson.clips = [];
@@ -149,8 +151,9 @@ function resetEditorForNewLesson(selectedMediaName = "") {
 }
 
 function loadLessonToEditor(data) {
+  lesson.id = data.id; // 🔥 這行很重要
   lesson.title = data.title || "";
-  lesson.media = data.media || "";
+  lesson.media = data.media_filename || "";
   lesson.clips = Array.isArray(data.clips) ? data.clips : [];
 
   getLessonTitleInput().value = lesson.title;
@@ -173,48 +176,135 @@ async function refreshMediaList() {
   const res = await fetch("/api/media");
   const data = await res.json();
 
-  const files = (data.media || []).filter(f => !f.startsWith("."));
   const list = document.getElementById("mediaList");
   list.innerHTML = "";
 
-  files.forEach((name) => {
-    const li = document.createElement("li");
-    li.innerText = name;
-    li.style.cursor = "pointer";
+  const items = data.media || [];
 
-    li.onclick = () => {
-      player.src = `/media/${encodeURIComponent(name)}`;
-      resetEditorForNewLesson(name);
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "clip-card";
+
+    const nameDiv = document.createElement("div");
+    nameDiv.innerText = item.display_name || item.filename;
+    nameDiv.style.cursor = "pointer";
+    nameDiv.onclick = () => {
+      player.src = `/media/${encodeURIComponent(item.filename)}`;
+      resetEditorForNewLesson(item.filename);
     };
 
+    const actions = document.createElement("div");
+    actions.className = "clip-actions";
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.innerText = "Delete";
+    deleteBtn.onclick = async (e) => {
+      e.stopPropagation();
+
+      const ok = confirm(`確定要刪除 media 嗎？\n${item.filename}`);
+      if (!ok) return;
+
+      try {
+        const res = await fetch(`/api/media/${encodeURIComponent(item.filename)}`, {
+          method: "DELETE"
+        });
+
+        const result = await res.json();
+
+        if (!res.ok || !result.ok) {
+          throw new Error(result.error || "Delete failed");
+        }
+
+        if (lesson.media === item.filename) {
+          player.removeAttribute("src");
+          player.load();
+          resetEditorForNewLesson("");
+        }
+
+        await refreshMediaList();
+        alert(`已刪除 media:\n${item.filename}`);
+      } catch (err) {
+        console.error(err);
+        alert(`刪除失敗：\n${err.message || err}`);
+      }
+    };
+
+    actions.appendChild(deleteBtn);
+    li.append(nameDiv, actions);
     list.appendChild(li);
   });
 }
 
 async function refreshLessonList() {
   const res = await fetch("/api/lessons");
-  const data = await res.json();
+  const lessons = await res.json();
 
-  const files = (data.lessons || []).filter(f => !f.startsWith("."));
   const list = document.getElementById("lessonList");
   list.innerHTML = "";
 
-  files.forEach((name) => {
+  lessons.forEach((lessonItem) => {
     const li = document.createElement("li");
-    li.innerText = name;
-    li.style.cursor = "pointer";
+    li.className = "clip-card";
 
-    li.onclick = async () => {
-      const res = await fetch(`/api/lessons/${encodeURIComponent(name)}`);
+    const nameDiv = document.createElement("div");
+    nameDiv.innerText = lessonItem.title;
+    nameDiv.style.cursor = "pointer";
+
+    nameDiv.onclick = async () => {
+      const res = await fetch(`/api/lessons/${lessonItem.id}`);
       const lessonData = await res.json();
 
       loadLessonToEditor(lessonData);
 
-      if (lesson.media) {
-        player.src = `/media/${encodeURIComponent(lesson.media)}`;
+      if (lessonData.media_filename) {
+        player.src = `/media/${encodeURIComponent(lessonData.media_filename)}`;
       }
     };
 
+    const actions = document.createElement("div");
+    actions.className = "clip-actions";
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.innerText = "Delete";
+    deleteBtn.onclick = async (e) => {
+      e.stopPropagation();
+
+      const ok = confirm(`確定要刪除 lesson 嗎？\n${lessonItem.title}`);
+      if (!ok) return;
+
+      try {
+        const res = await fetch(`/api/lessons/${lessonItem.id}`, {
+          method: "DELETE"
+        });
+
+        const result = await res.json();
+
+        if (!res.ok || !result.ok) {
+          throw new Error(result.error || "Delete failed");
+        }
+
+        if (lesson.id === lessonItem.id) {
+          lesson.id = undefined;
+          lesson.title = "";
+          lesson.media = "";
+          lesson.clips = [];
+          getLessonTitleInput().value = "";
+          exitEditMode(true);
+          renderClips();
+          player.removeAttribute("src");
+          player.load();
+        }
+
+        await refreshLessonList();
+        alert(`已刪除 lesson:\n${lessonItem.title}`);
+      } catch (err) {
+        console.error(err);
+        alert(`刪除失敗：\n${err.message || err}`);
+      }
+    };
+
+    actions.appendChild(deleteBtn);
+    li.append(nameDiv, actions);
     list.appendChild(li);
   });
 }
@@ -331,7 +421,7 @@ document.getElementById("importLessonBtn").onclick = () => {
     }
 
     await refreshLessonList();
-    alert(`已匯入 lesson:\n${data.filename}`);
+    alert(`已匯入 lesson:\n${data.title} (id: ${data.id})`);
   };
 
   input.click();
@@ -465,11 +555,13 @@ document.getElementById("saveLesson").onclick = async () => {
 
     const data = await res.json();
 
-    if (!res.ok || !data.ok) {
+    if (!res.ok || (!data.ok && !data.success)) {
       throw new Error(data.error || "Save failed");
     }
 
-    alert(`Saved:\n${data.filename}`);
+    lesson.id = data.id;
+
+    alert(`Saved:\n${data.filename || data.id || ""}`);
     await refreshLessonList();
   } catch (err) {
     console.error(err);

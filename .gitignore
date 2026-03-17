@@ -29,20 +29,51 @@ Thumbs.db
 .vscode/
 
 # -----------------------------
+# env
+# -----------------------------
+.env
+.env.*
+
+# -----------------------------
 # runtime data
 # -----------------------------
 data/media/*
 data/lessons/*
 data/temp-*
 
-# keep empty folders
 !data/media/.gitkeep
 !data/lessons/.gitkeep
 
 # -----------------------------
-# whisper models (very large)
+# sqlite
 # -----------------------------
-tools/whisper/models/*
+server/*.db
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
+
+# -----------------------------
+# whisper models
+# -----------------------------
+tools/whisper/**/models/*.bin
+
+# -----------------------------
+# whisper build
+# -----------------------------
+tools/whisper/**/build/
+tools/whisper/**/*.o
+tools/whisper/**/*.a
+tools/whisper/**/*.so
+tools/whisper/**/*.dylib
+tools/whisper/whisper/
+
+# -----------------------------
+# whisper binaries
+# -----------------------------
+tools/whisper/**/whisper-cli
+tools/whisper/**/whisper-server
+tools/whisper/**/whisper-bench
+tools/whisper/**/whisper-quantize
 
 # -----------------------------
 # temp audio
