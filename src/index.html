@@ -24,6 +24,7 @@
       </select>
 
       <button id="newMediaFolderBtn">New Folder</button>
+      <button id="moveMediaFolderBtn">Move Folder</button>
       <button id="deleteMediaFolderBtn">Delete Folder</button>
       <button id="importMediaBtn">Import Media</button>
 
@@ -34,8 +35,9 @@
       <select id="lessonFolderSelect">
         <option value="">(root)</option>
       </select>
-      
+
       <button id="newLessonFolderBtn">New Folder</button>
+      <button id="moveLessonFolderBtn">Move Folder</button>
       <button id="deleteLessonFolderBtn">Delete Folder</button>
       <button id="importLessonBtn">Import Lesson</button>
 
@@ -76,6 +78,19 @@
 
       <h3>Clip List</h3>
       <ul id="clipList"></ul>
+    </div>
+  </div>
+
+  <div id="moveModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Move to folder</h3>
+    
+      <div id="moveFolderList" class="folder-list"></div>
+    
+      <div class="modal-actions">
+        <button id="moveConfirmBtn">Confirm</button>
+        <button id="moveCancelBtn">Cancel</button>
+      </div>
     </div>
   </div>
 

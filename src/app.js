@@ -13,6 +13,7 @@ let currentPlayInterval = null;
 let editingClipIndex = -1;
 let currentMediaFolderId = null;
 let currentLessonFolderId = null;
+let moveTargetFolderId = null;
 
 // ---------- helpers ----------
 function getStartInput() {
@@ -34,6 +35,35 @@ async function fetchFolders(kind) {
   return data.folders || [];
 }
 
+function buildFolderTree(folders) {
+  const byParent = new Map();
+
+  folders.forEach((folder) => {
+    const key = folder.parent_id ?? null;
+    if (!byParent.has(key)) {
+      byParent.set(key, []);
+    }
+    byParent.get(key).push(folder);
+  });
+
+  for (const arr of byParent.values()) {
+    arr.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const result = [];
+
+  function walk(parentId, depth) {
+    const children = byParent.get(parentId) || [];
+    for (const child of children) {
+      result.push({ ...child, depth });
+      walk(child.id, depth + 1);
+    }
+  }
+
+  walk(null, 0);
+  return result;
+}
+
 function renderFolderSelect(selectEl, folders, selectedId) {
   selectEl.innerHTML = "";
 
@@ -42,16 +72,105 @@ function renderFolderSelect(selectEl, folders, selectedId) {
   rootOption.innerText = "(root)";
   selectEl.appendChild(rootOption);
 
-  folders.forEach((folder) => {
+  const flattened = buildFolderTree(folders);
+
+  flattened.forEach((folder) => {
     const option = document.createElement("option");
     option.value = folder.id;
-    option.innerText = folder.name;
+    option.innerText = `${"　".repeat(folder.depth)}${folder.name}`;
 
     if (selectedId != null && Number(selectedId) === folder.id) {
       option.selected = true;
     }
 
     selectEl.appendChild(option);
+  });
+}
+
+function getDescendantFolderIds(folders, folderId) {
+  const byParent = new Map();
+
+  folders.forEach((folder) => {
+    const key = folder.parent_id ?? null;
+    if (!byParent.has(key)) {
+      byParent.set(key, []);
+    }
+    byParent.get(key).push(folder);
+  });
+
+  const result = [];
+  const stack = [...(byParent.get(folderId) || [])];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    result.push(current.id);
+
+    const children = byParent.get(current.id) || [];
+    stack.push(...children);
+  }
+
+  return result;
+}
+
+function openMoveModal(folders, options = {}) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("moveModal");
+    const list = document.getElementById("moveFolderList");
+    const {
+      excludedFolderIds = [],
+      initialFolderId = undefined
+    } = options;
+
+    list.innerHTML = "";
+    moveTargetFolderId = initialFolderId;
+
+    const flattened = buildFolderTree(folders);
+    const selectableNodes = [];
+
+    const rootDiv = document.createElement("div");
+    rootDiv.innerText = "(root)";
+    rootDiv.onclick = () => {
+      selectFolder(null, rootDiv);
+    };
+    list.appendChild(rootDiv);
+    selectableNodes.push(rootDiv);
+
+    flattened.forEach((folder) => {
+      if (excludedFolderIds.includes(folder.id)) return;
+
+      const div = document.createElement("div");
+      div.innerText = `${"　".repeat(folder.depth)}${folder.name}`;
+      div.onclick = () => {
+        selectFolder(folder.id, div);
+      };
+
+      list.appendChild(div);
+      selectableNodes.push(div);
+    });
+
+    function selectFolder(id, el) {
+      moveTargetFolderId = id;
+      selectableNodes.forEach((node) => node.classList.remove("folder-selected"));
+      el.classList.add("folder-selected");
+    }
+
+    document.getElementById("moveConfirmBtn").onclick = () => {
+      const selectedId = moveTargetFolderId;
+      close();
+      resolve(selectedId);
+    };
+    
+    document.getElementById("moveCancelBtn").onclick = () => {
+      close();
+      resolve(undefined);
+    };
+
+    function close() {
+      modal.classList.add("hidden");
+      moveTargetFolderId = null;
+    }
+
+    modal.classList.remove("hidden");
   });
 }
 
@@ -313,8 +432,43 @@ async function refreshMediaList() {
       }
     };
 
+    const moveBtn = document.createElement("button");
+    moveBtn.innerText = "Move";
+
+    moveBtn.onclick = async (e) => {
+      e.stopPropagation();
+    
+      try {
+        const folders = await fetchFolders("media");
+      
+        const folderId = await openMoveModal(folders);
+        if (folderId === undefined) return; // 只有取消才 return
+      
+        const res = await fetch(`/api/media/${encodeURIComponent(item.filename)}/move`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            folder_id: folderId
+          })
+        });
+      
+        const data = await res.json();
+      
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Move failed");
+        }
+      
+        await refreshMediaList();
+      } catch (err) {
+        alert(`移動 media 失敗：\n${err.message}`);
+      }
+    };
+
     actions.appendChild(renameBtn);
-    actions.appendChild(deleteBtn);
+    actions.appendChild(moveBtn);
+    actions.appendChild(deleteBtn);    
     li.append(nameDiv, actions);
     list.appendChild(li);
   });
@@ -429,8 +583,44 @@ async function refreshLessonList() {
       }
     };
 
+    const moveBtn = document.createElement("button");
+    moveBtn.innerText = "Move";
+
+    moveBtn.onclick = async (e) => {
+      e.stopPropagation();
+    
+      try {
+        const folders = await fetchFolders("lesson");
+      
+        const folderId = await openMoveModal(folders);
+        if (folderId === undefined) return; // 只有取消才 return
+      
+        const res = await fetch(`/api/lessons/${lessonItem.id}/move`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            folder_id: folderId
+          })
+        });
+      
+        const data = await res.json();
+      
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Move failed");
+        }
+      
+        await refreshLessonList();
+      } catch (err) {
+        alert(`移動 lesson 失敗：\n${err.message}`);
+      }
+    };
+
     actions.appendChild(renameBtn);
+    actions.appendChild(moveBtn);
     actions.appendChild(deleteBtn);
+
     li.append(nameDiv, actions);
     list.appendChild(li);
   });
@@ -714,6 +904,90 @@ document.getElementById("deleteLessonFolderBtn").onclick = async () => {
     await refreshLessonList();
   } catch (err) {
     alert(`刪除資料夾失敗：\n${err.message}`);
+  }
+};
+
+document.getElementById("moveMediaFolderBtn").onclick = async () => {
+  if (currentMediaFolderId == null) {
+    alert("現在是 root，不能移動 root");
+    return;
+  }
+
+  try {
+    const folders = await fetchFolders("media");
+    const excludedFolderIds = [
+      currentMediaFolderId,
+      ...getDescendantFolderIds(folders, currentMediaFolderId)
+    ];
+
+    const parentId = await openMoveModal(folders, {
+      excludedFolderIds
+    });
+    if (parentId === undefined) return;
+
+    const res = await fetch(`/api/folders/${currentMediaFolderId}/move`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        parent_id: parentId
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Move folder failed");
+    }
+
+    await refreshFolderSelectors();
+    await refreshMediaList();
+    alert("media folder 已移動");
+  } catch (err) {
+    alert(`移動資料夾失敗：\n${err.message}`);
+  }
+};
+
+document.getElementById("moveLessonFolderBtn").onclick = async () => {
+  if (currentLessonFolderId == null) {
+    alert("現在是 root，不能移動 root");
+    return;
+  }
+
+  try {
+    const folders = await fetchFolders("lesson");
+    const excludedFolderIds = [
+      currentLessonFolderId,
+      ...getDescendantFolderIds(folders, currentLessonFolderId)
+    ];
+
+    const parentId = await openMoveModal(folders, {
+      excludedFolderIds
+    });
+    if (parentId === undefined) return;
+
+    const res = await fetch(`/api/folders/${currentLessonFolderId}/move`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        parent_id: parentId
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Move folder failed");
+    }
+
+    await refreshFolderSelectors();
+    await refreshLessonList();
+    alert("lesson folder 已移動");
+  } catch (err) {
+    alert(`移動資料夾失敗：\n${err.message}`);
   }
 };
 

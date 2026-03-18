@@ -87,6 +87,48 @@ function lessonFileFilter(req, file, cb) {
   cb(null, true);
 }
 
+function normalizeNullableId(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error("invalid id");
+  }
+
+  return n;
+}
+
+function getDescendantIds(folderId) {
+  const allFolders = db.prepare(`
+    SELECT id, parent_id FROM folders
+  `).all();
+
+  const childrenMap = new Map();
+
+  for (const row of allFolders) {
+    const key = row.parent_id ?? null;
+    if (!childrenMap.has(key)) {
+      childrenMap.set(key, []);
+    }
+    childrenMap.get(key).push(row.id);
+  }
+
+  const result = [];
+  const stack = [...(childrenMap.get(folderId) || [])];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    result.push(current);
+
+    const children = childrenMap.get(current) || [];
+    stack.push(...children);
+  }
+
+  return result;
+}
+
 const mediaStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, MEDIA_DIR),
   filename: (req, file, cb) => {
@@ -353,10 +395,107 @@ app.delete("/api/folders/:id", (req, res) => {
   }
 });
 
+app.patch("/api/folders/:id/move", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const parent_id = normalizeNullableId(req.body.parent_id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid folder id"
+      });
+    }
+
+    const folder = db.prepare(`
+      SELECT * FROM folders WHERE id = ?
+    `).get(id);
+
+    if (!folder) {
+      return res.status(404).json({
+        ok: false,
+        error: "Folder not found"
+      });
+    }
+
+    if (parent_id === id) {
+      return res.status(400).json({
+        ok: false,
+        error: "不能把資料夾移到自己底下"
+      });
+    }
+
+    let parent = null;
+
+    if (parent_id !== null) {
+      parent = db.prepare(`
+        SELECT * FROM folders WHERE id = ?
+      `).get(parent_id);
+
+      if (!parent) {
+        return res.status(400).json({
+          ok: false,
+          error: "target parent folder not found"
+        });
+      }
+
+      if (parent.kind !== folder.kind) {
+        return res.status(400).json({
+          ok: false,
+          error: "target parent folder kind mismatch"
+        });
+      }
+
+      const descendantIds = getDescendantIds(id);
+      if (descendantIds.includes(parent_id)) {
+        return res.status(400).json({
+          ok: false,
+          error: "不能移到自己的子資料夾底下"
+        });
+      }
+    }
+
+    const duplicate = db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE name = ?
+        AND kind = ?
+        AND id != ?
+        AND (
+          (parent_id IS NULL AND ? IS NULL)
+          OR parent_id = ?
+        )
+    `).get(folder.name, folder.kind, id, parent_id, parent_id);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: "目標位置已有同名資料夾"
+      });
+    }
+
+    db.prepare(`
+      UPDATE folders
+      SET parent_id = ?
+      WHERE id = ?
+    `).run(parent_id, id);
+
+    res.json({
+      ok: true,
+      id,
+      parent_id
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
 /* ================================
    media
 ================================ */
-
 app.get("/api/media", (req, res) => {
   try {
     const folderIdRaw = req.query.folder_id;
@@ -540,6 +679,62 @@ app.get("/media/:filename", (req, res) => {
   });
 
   stream.pipe(res);
+});
+
+app.patch("/api/media/:filename/move", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const folder_id = normalizeNullableId(req.body.folder_id);
+
+    const media = db.prepare(`
+      SELECT * FROM media_files WHERE filename = ?
+    `).get(filename);
+
+    if (!media) {
+      return res.status(404).json({
+        ok: false,
+        error: "Media not found"
+      });
+    }
+
+    if (folder_id !== null) {
+      const folder = db.prepare(`
+        SELECT * FROM folders WHERE id = ?
+      `).get(folder_id);
+
+      if (!folder) {
+        return res.status(400).json({
+          ok: false,
+          error: "target folder not found"
+        });
+      }
+
+      if (folder.kind !== "media") {
+        return res.status(400).json({
+          ok: false,
+          error: "target folder must be media"
+        });
+      }
+    }
+
+    db.prepare(`
+      UPDATE media_files
+      SET folder_id = ?
+      WHERE filename = ?
+    `).run(folder_id, filename);
+
+    res.json({
+      ok: true,
+      filename,
+      folder_id
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
 });
 
 /* ================================
@@ -747,6 +942,69 @@ app.post("/api/lessons", (req, res) => {
   });
 
   res.json({ success: true, id: lessonId });
+});
+
+app.patch("/api/lessons/:id/move", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const folder_id = normalizeNullableId(req.body.folder_id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid lesson id"
+      });
+    }
+
+    const lesson = db.prepare(`
+      SELECT * FROM lessons WHERE id = ?
+    `).get(id);
+
+    if (!lesson) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lesson not found"
+      });
+    }
+
+    if (folder_id !== null) {
+      const folder = db.prepare(`
+        SELECT * FROM folders WHERE id = ?
+      `).get(folder_id);
+
+      if (!folder) {
+        return res.status(400).json({
+          ok: false,
+          error: "target folder not found"
+        });
+      }
+
+      if (folder.kind !== "lesson") {
+        return res.status(400).json({
+          ok: false,
+          error: "target folder must be lesson"
+        });
+      }
+    }
+
+    db.prepare(`
+      UPDATE lessons
+      SET folder_id = ?, updated_at = ?
+      WHERE id = ?
+    `).run(folder_id, new Date().toISOString(), id);
+
+    res.json({
+      ok: true,
+      id,
+      folder_id
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
 });
 
 /* ================================
