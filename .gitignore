@@ -75,6 +75,10 @@ tools/whisper/**/whisper-server
 tools/whisper/**/whisper-bench
 tools/whisper/**/whisper-quantize
 
+# sentence audio (generated files)
+data/sentence_audio/*
+!data/sentence_audio/.gitkeep
+
 # -----------------------------
 # temp audio
 # -----------------------------

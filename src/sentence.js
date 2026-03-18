@@ -5,6 +5,9 @@ const sentenceState = {
   category: ""
 };
 
+let currentSentenceTimeHandler = null;
+let editingSentenceId = null;
+
 function parseTimeInput(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -13,6 +16,30 @@ function parseTimeInput(value) {
 
 function formatTime(value) {
   return parseTimeInput(value).toFixed(1);
+}
+
+function openSentenceEditor(item) {
+  editingSentenceId = item.id;
+
+  document.getElementById("sentenceEditorPanel").style.display = "block";
+  document.getElementById("editSentenceId").value = item.id;
+  document.getElementById("editSentenceJp").value = item.jp || "";
+  document.getElementById("editSentenceZh").value = item.zh || "";
+  document.getElementById("editSentenceCategory").value = item.category || "";
+  document.getElementById("editSentenceNote").value = item.note || "";
+
+  document.getElementById("editSentenceJp").focus();
+}
+
+function closeSentenceEditor() {
+  editingSentenceId = null;
+
+  document.getElementById("sentenceEditorPanel").style.display = "none";
+  document.getElementById("editSentenceId").value = "";
+  document.getElementById("editSentenceJp").value = "";
+  document.getElementById("editSentenceZh").value = "";
+  document.getElementById("editSentenceCategory").value = "";
+  document.getElementById("editSentenceNote").value = "";
 }
 
 async function refreshSentenceList() {
@@ -48,7 +75,8 @@ async function refreshSentenceList() {
     meta.innerText =
       `[${formatTime(item.start)} - ${formatTime(item.end)}]` +
       (item.category ? ` | ${item.category}` : "") +
-      (item.media_filename ? ` | ${item.media_filename}` : "");
+      (item.media_filename ? ` | ${item.media_filename}` : "") +
+      (item.audio_filename ? ` | clipped` : " | no-audio");
 
     const jpDiv = document.createElement("div");
     jpDiv.className = "clip-jp";
@@ -68,71 +96,55 @@ async function refreshSentenceList() {
 
     const playBtn = document.createElement("button");
     playBtn.innerText = "Play";
-    playBtn.onclick = () => {
-      if (!item.media_filename) {
-        alert("這筆 sentence 沒有 media_filename");
-        return;
-      }
-
-      if (parseTimeInput(item.end) <= parseTimeInput(item.start)) {
-        alert("這筆 sentence 的時間範圍不合法");
-        return;
-      }
-
-      player.src = `/media/${encodeURIComponent(item.media_filename)}`;
-      player.currentTime = parseTimeInput(item.start);
-      player.play();
-
-      const onTimeUpdate = () => {
-        if (player.currentTime >= parseTimeInput(item.end) || player.ended) {
-          player.pause();
-          player.removeEventListener("timeupdate", onTimeUpdate);
+    playBtn.onclick = async () => {
+      try {
+        if (currentSentenceTimeHandler) {
+          player.removeEventListener("timeupdate", currentSentenceTimeHandler);
+          currentSentenceTimeHandler = null;
         }
-      };
 
-      player.addEventListener("timeupdate", onTimeUpdate);
+        if (item.audio_filename) {
+          player.src = `/sentence-audio/${encodeURIComponent(item.audio_filename)}`;
+          player.currentTime = 0;
+          await player.play();
+          return;
+        }
+
+        if (!item.media_filename) {
+          alert("這筆 sentence 沒有 media_filename");
+          return;
+        }
+
+        if (parseTimeInput(item.end) <= parseTimeInput(item.start)) {
+          alert("這筆 sentence 的時間範圍不合法");
+          return;
+        }
+
+        player.src = `/media/${encodeURIComponent(item.media_filename)}`;
+        player.currentTime = parseTimeInput(item.start);
+        await player.play();
+
+        currentSentenceTimeHandler = () => {
+          if (player.currentTime >= parseTimeInput(item.end) || player.ended) {
+            player.pause();
+            if (currentSentenceTimeHandler) {
+              player.removeEventListener("timeupdate", currentSentenceTimeHandler);
+              currentSentenceTimeHandler = null;
+            }
+          }
+        };
+
+        player.addEventListener("timeupdate", currentSentenceTimeHandler);
+      } catch (err) {
+        console.error(err);
+        alert(`播放失敗：\n${err.message || err}`);
+      }
     };
 
     const editBtn = document.createElement("button");
     editBtn.innerText = "Edit";
-    editBtn.onclick = async () => {
-      const newJp = prompt("編輯 jp", item.jp || "");
-      if (newJp === null) return;
-
-      const newZh = prompt("編輯 zh", item.zh || "");
-      if (newZh === null) return;
-
-      const newCategory = prompt("編輯 category", item.category || "");
-      if (newCategory === null) return;
-
-      const newNote = prompt("編輯 note", item.note || "");
-      if (newNote === null) return;
-
-      try {
-        const res = await fetch(`/api/sentences/${item.id}`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            jp: newJp.trim(),
-            zh: newZh.trim(),
-            category: newCategory.trim(),
-            note: newNote.trim()
-          })
-        });
-
-        const data = await res.json();
-
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Update sentence failed");
-        }
-
-        await refreshSentenceList();
-      } catch (err) {
-        console.error(err);
-        alert(`更新 sentence 失敗：\n${err.message || err}`);
-      }
+    editBtn.onclick = () => {
+      openSentenceEditor(item);
     };
 
     const deleteBtn = document.createElement("button");
@@ -152,6 +164,10 @@ async function refreshSentenceList() {
           throw new Error(data.error || "Delete sentence failed");
         }
 
+        if (editingSentenceId === item.id) {
+          closeSentenceEditor();
+        }
+
         await refreshSentenceList();
       } catch (err) {
         console.error(err);
@@ -164,6 +180,55 @@ async function refreshSentenceList() {
     list.appendChild(li);
   });
 }
+
+document.getElementById("saveSentenceEditBtn").onclick = async () => {
+  const id = Number(document.getElementById("editSentenceId").value);
+  const jp = document.getElementById("editSentenceJp").value.trim();
+  const zh = document.getElementById("editSentenceZh").value.trim();
+  const category = document.getElementById("editSentenceCategory").value.trim();
+  const note = document.getElementById("editSentenceNote").value.trim();
+
+  if (!id) {
+    alert("沒有正在編輯的 sentence");
+    return;
+  }
+
+  if (!jp) {
+    alert("jp 不能為空");
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/sentences/${id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        jp,
+        zh,
+        category,
+        note
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Update sentence failed");
+    }
+
+    closeSentenceEditor();
+    await refreshSentenceList();
+  } catch (err) {
+    console.error(err);
+    alert(`更新 sentence 失敗：\n${err.message || err}`);
+  }
+};
+
+document.getElementById("cancelSentenceEditBtn").onclick = () => {
+  closeSentenceEditor();
+};
 
 document.getElementById("sentenceSearchBtn").onclick = async () => {
   sentenceState.q = document.getElementById("sentenceSearchInput").value.trim();
@@ -183,6 +248,8 @@ document.getElementById("sentenceClearBtn").onclick = async () => {
 
   document.getElementById("sentenceSearchInput").value = "";
   document.getElementById("sentenceCategoryFilter").value = "";
+
+  closeSentenceEditor();
 
   try {
     await refreshSentenceList();

@@ -13,6 +13,7 @@ app.use(express.json());
 const DATA_DIR = path.join(__dirname, "..", "data");
 const MEDIA_DIR = path.join(DATA_DIR, "media");
 const LESSONS_DIR = path.join(DATA_DIR, "lessons");
+const SENTENCE_AUDIO_DIR = path.join(DATA_DIR, "sentence_audio");
 const SRC_DIR = path.join(__dirname, "..", "src");
 
 /* ================================
@@ -56,6 +57,7 @@ function ensureDirExists(dir) {
 ensureDirExists(DATA_DIR);
 ensureDirExists(MEDIA_DIR);
 ensureDirExists(LESSONS_DIR);
+ensureDirExists(SENTENCE_AUDIO_DIR);
 
 const allowedMediaExts = new Set([
   ".mp4", ".webm", ".mp3", ".wav", ".m4a", ".mov", ".mkv"
@@ -190,6 +192,51 @@ function cleanWhisperText(raw = "") {
   return raw
     .replace(/\[[^\]]+\]\s*/g, "")
     .trim();
+}
+
+function cutSentenceAudio({ mediaFilename, start, end, sentenceId }) {
+  return new Promise((resolve, reject) => {
+    const safeMediaFilename = path.basename(String(mediaFilename || "").trim());
+    const mediaPath = path.join(MEDIA_DIR, safeMediaFilename);
+
+    if (!safeMediaFilename) {
+      return reject(new Error("media_filename required for sentence audio"));
+    }
+
+    if (!fs.existsSync(mediaPath)) {
+      return reject(new Error("source media file not found"));
+    }
+
+    if (!(Number.isFinite(start) && Number.isFinite(end)) || end <= start) {
+      return reject(new Error("invalid start/end for sentence audio"));
+    }
+
+    const outputFilename = `sentence_${sentenceId}.mp3`;
+    const outputPath = path.join(SENTENCE_AUDIO_DIR, outputFilename);
+
+    execFile(
+      FFMPEG_PATH,
+      [
+        "-y",
+        "-ss", String(start),
+        "-to", String(end),
+        "-i", mediaPath,
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-ar", "44100",
+        "-ac", "1",
+        "-b:a", "128k",
+        outputPath
+      ],
+      (err) => {
+        if (err) {
+          return reject(new Error(`ffmpeg cut sentence failed: ${err.message}`));
+        }
+
+        resolve(outputFilename);
+      }
+    );
+  });
 }
 
 app.use(express.static(SRC_DIR));
@@ -681,6 +728,17 @@ app.get("/media/:filename", (req, res) => {
   stream.pipe(res);
 });
 
+app.get("/sentence-audio/:filename", (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(SENTENCE_AUDIO_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Sentence audio not found");
+  }
+
+  return res.sendFile(filePath);
+});
+
 app.patch("/api/media/:filename/move", (req, res) => {
   try {
     const filename = path.basename(req.params.filename);
@@ -1167,7 +1225,7 @@ app.get("/api/sentences", (req, res) => {
   }
 });
 
-app.post("/api/sentences", (req, res) => {
+app.post("/api/sentences", async (req, res) => {
   try {
     const {
       lesson_id = null,
@@ -1185,10 +1243,13 @@ app.post("/api/sentences", (req, res) => {
     const trimmedZh = String(zh || "").trim();
     const trimmedCategory = String(category || "").trim();
     const trimmedNote = String(note || "").trim();
+    const trimmedMediaFilename = String(media_filename || "").trim();
+
     const normalizedLessonId =
       lesson_id === null || lesson_id === undefined || lesson_id === ""
         ? null
         : Number(lesson_id);
+
     const normalizedClipIndex =
       clip_index === null || clip_index === undefined || clip_index === ""
         ? null
@@ -1223,6 +1284,21 @@ app.post("/api/sentences", (req, res) => {
 
     const safeStart = Number.isFinite(Number(start)) ? Number(start) : null;
     const safeEnd = Number.isFinite(Number(end)) ? Number(end) : null;
+
+    if (!(Number.isFinite(safeStart) && Number.isFinite(safeEnd)) || safeEnd <= safeStart) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid start/end"
+      });
+    }
+
+    if (!trimmedMediaFilename) {
+      return res.status(400).json({
+        ok: false,
+        error: "media_filename required"
+      });
+    }
+
     const now = new Date().toISOString();
 
     const result = db.prepare(`
@@ -1230,6 +1306,7 @@ app.post("/api/sentences", (req, res) => {
         lesson_id,
         clip_index,
         media_filename,
+        audio_filename,
         start,
         end,
         jp,
@@ -1239,11 +1316,12 @@ app.post("/api/sentences", (req, res) => {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       normalizedLessonId,
       normalizedClipIndex,
-      String(media_filename || "").trim(),
+      trimmedMediaFilename,
+      null,
       safeStart,
       safeEnd,
       trimmedJp,
@@ -1254,9 +1332,38 @@ app.post("/api/sentences", (req, res) => {
       now
     );
 
+    const sentenceId = Number(result.lastInsertRowid);
+
+    let audioFilename = null;
+
+    try {
+      audioFilename = await cutSentenceAudio({
+        mediaFilename: trimmedMediaFilename,
+        start: safeStart,
+        end: safeEnd,
+        sentenceId
+      });
+
+      db.prepare(`
+        UPDATE sentence_items
+        SET audio_filename = ?, updated_at = ?
+        WHERE id = ?
+      `).run(audioFilename, new Date().toISOString(), sentenceId);
+    } catch (cutErr) {
+      db.prepare(`
+        DELETE FROM sentence_items WHERE id = ?
+      `).run(sentenceId);
+
+      return res.status(500).json({
+        ok: false,
+        error: cutErr.message
+      });
+    }
+
     res.json({
       ok: true,
-      id: result.lastInsertRowid
+      id: sentenceId,
+      audio_filename: audioFilename
     });
   } catch (err) {
     res.status(500).json({
@@ -1354,10 +1461,17 @@ app.delete("/api/sentences/:id", (req, res) => {
       });
     }
 
+    if (existing.audio_filename) {
+      const audioPath = path.join(SENTENCE_AUDIO_DIR, path.basename(existing.audio_filename));
+      if (fs.existsSync(audioPath)) {
+        fs.unlinkSync(audioPath);
+      }
+    }
+
     db.prepare(`
       DELETE FROM sentence_items WHERE id = ?
     `).run(id);
-
+    
     res.json({
       ok: true,
       id

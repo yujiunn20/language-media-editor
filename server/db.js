@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS sentence_items (
   lesson_id INTEGER,
   clip_index INTEGER,
   media_filename TEXT,
+  audio_filename TEXT,
   start REAL,
   end REAL,
   jp TEXT NOT NULL,
@@ -75,6 +76,10 @@ const sentenceCols = db.prepare("PRAGMA table_info(sentence_items)").all();
 
 if (sentenceCols.length > 0 && !sentenceCols.some(col => col.name === "note")) {
   db.exec("ALTER TABLE sentence_items ADD COLUMN note TEXT");
+}
+
+if (sentenceCols.length > 0 && !sentenceCols.some(col => col.name === "audio_filename")) {
+  db.exec("ALTER TABLE sentence_items ADD COLUMN audio_filename TEXT");
 }
 
 module.exports = db;

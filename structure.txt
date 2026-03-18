@@ -1,21 +1,27 @@
 language-media-editor/
 │
 ├─ server/
-│   └─ server.js
+│   └─ server.js                # Express backend (API + ffmpeg later)
 │
 ├─ src/
-│   ├─ index.html
-│   ├─ app.js
+│   ├─ index.html              # 主頁：lesson / clip 編輯
+│   ├─ sentence.html           # Sentence Book（獨立頁面）
+│   ├─ app.js                  # 主頁邏輯（editor + save sentence）
+│   ├─ sentence.js             # sentence 管理（search / edit / play）
 │   └─ style.css
 │
 ├─ data/
-│   ├─ media/        # video / audio files (not tracked by git)
+│   ├─ media/                  # 原始影片 / 音檔（不進 git）
 │   │   └─ .gitkeep
-│   └─ lessons/      # lesson json files (not tracked by git)
+│
+│   ├─ lessons/                # lesson json（不進 git）
+│   │   └─ .gitkeep
+│
+│   └─ sentence_audio/         # 🔥（之後會新增）裁切句子音檔
 │       └─ .gitkeep
 │
-├─ main.js           # Electron main process (legacy / optional)
-├─ preload.js        # Electron preload (legacy / optional)
+├─ main.js                     # Electron (optional / legacy)
+├─ preload.js                 # Electron (optional / legacy)
 │
 ├─ package.json
 ├─ package-lock.json
