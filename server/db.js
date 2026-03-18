@@ -41,6 +41,23 @@ CREATE TABLE IF NOT EXISTS media_files (
   folder_id INTEGER,
   created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS sentence_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lesson_id INTEGER,
+  clip_index INTEGER,
+  media_filename TEXT,
+  start REAL,
+  end REAL,
+  jp TEXT NOT NULL,
+  zh TEXT,
+  category TEXT,
+  note TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+);
+
 `);
 
 // ===== migration for old existing DB =====
@@ -52,6 +69,12 @@ if (!lessonCols.some(col => col.name === "folder_id")) {
 const mediaCols = db.prepare("PRAGMA table_info(media_files)").all();
 if (!mediaCols.some(col => col.name === "folder_id")) {
   db.exec("ALTER TABLE media_files ADD COLUMN folder_id INTEGER");
+}
+
+const sentenceCols = db.prepare("PRAGMA table_info(sentence_items)").all();
+
+if (sentenceCols.length > 0 && !sentenceCols.some(col => col.name === "note")) {
+  db.exec("ALTER TABLE sentence_items ADD COLUMN note TEXT");
 }
 
 module.exports = db;

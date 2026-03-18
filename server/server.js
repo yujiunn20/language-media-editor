@@ -1118,6 +1118,259 @@ app.post("/api/transcribe", (req, res) => {
 });
 
 /* ================================
+   sentences
+================================ */
+
+app.get("/api/sentences", (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const category = String(req.query.category || "").trim();
+
+    let sql = `
+      SELECT *
+      FROM sentence_items
+      WHERE 1 = 1
+    `;
+    const params = [];
+
+    if (q) {
+      sql += `
+        AND (
+          jp LIKE ?
+          OR zh LIKE ?
+          OR category LIKE ?
+          OR note LIKE ?
+        )
+      `;
+      const like = `%${q}%`;
+      params.push(like, like, like, like);
+    }
+
+    if (category) {
+      sql += ` AND category = ? `;
+      params.push(category);
+    }
+
+    sql += ` ORDER BY created_at DESC, id DESC `;
+
+    const rows = db.prepare(sql).all(...params);
+
+    res.json({
+      ok: true,
+      items: rows
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.post("/api/sentences", (req, res) => {
+  try {
+    const {
+      lesson_id = null,
+      clip_index = null,
+      media_filename = "",
+      start = null,
+      end = null,
+      jp = "",
+      zh = "",
+      category = "",
+      note = ""
+    } = req.body || {};
+
+    const trimmedJp = String(jp || "").trim();
+    const trimmedZh = String(zh || "").trim();
+    const trimmedCategory = String(category || "").trim();
+    const trimmedNote = String(note || "").trim();
+    const normalizedLessonId =
+      lesson_id === null || lesson_id === undefined || lesson_id === ""
+        ? null
+        : Number(lesson_id);
+    const normalizedClipIndex =
+      clip_index === null || clip_index === undefined || clip_index === ""
+        ? null
+        : Number(clip_index);
+
+    if (!trimmedJp) {
+      return res.status(400).json({
+        ok: false,
+        error: "jp required"
+      });
+    }
+
+    if (
+      normalizedLessonId !== null &&
+      (!Number.isInteger(normalizedLessonId) || normalizedLessonId <= 0)
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid lesson_id"
+      });
+    }
+
+    if (
+      normalizedClipIndex !== null &&
+      (!Number.isInteger(normalizedClipIndex) || normalizedClipIndex < 0)
+    ) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid clip_index"
+      });
+    }
+
+    const safeStart = Number.isFinite(Number(start)) ? Number(start) : null;
+    const safeEnd = Number.isFinite(Number(end)) ? Number(end) : null;
+    const now = new Date().toISOString();
+
+    const result = db.prepare(`
+      INSERT INTO sentence_items (
+        lesson_id,
+        clip_index,
+        media_filename,
+        start,
+        end,
+        jp,
+        zh,
+        category,
+        note,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      normalizedLessonId,
+      normalizedClipIndex,
+      String(media_filename || "").trim(),
+      safeStart,
+      safeEnd,
+      trimmedJp,
+      trimmedZh,
+      trimmedCategory,
+      trimmedNote,
+      now,
+      now
+    );
+
+    res.json({
+      ok: true,
+      id: result.lastInsertRowid
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.put("/api/sentences/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const {
+      jp = "",
+      zh = "",
+      category = "",
+      note = ""
+    } = req.body || {};
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid sentence id"
+      });
+    }
+
+    const existing = db.prepare(`
+      SELECT * FROM sentence_items WHERE id = ?
+    `).get(id);
+
+    if (!existing) {
+      return res.status(404).json({
+        ok: false,
+        error: "sentence not found"
+      });
+    }
+
+    const trimmedJp = String(jp || "").trim();
+    if (!trimmedJp) {
+      return res.status(400).json({
+        ok: false,
+        error: "jp required"
+      });
+    }
+
+    db.prepare(`
+      UPDATE sentence_items
+      SET
+        jp = ?,
+        zh = ?,
+        category = ?,
+        note = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(
+      trimmedJp,
+      String(zh || "").trim(),
+      String(category || "").trim(),
+      String(note || "").trim(),
+      new Date().toISOString(),
+      id
+    );
+
+    res.json({
+      ok: true,
+      id
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+app.delete("/api/sentences/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "invalid sentence id"
+      });
+    }
+
+    const existing = db.prepare(`
+      SELECT * FROM sentence_items WHERE id = ?
+    `).get(id);
+
+    if (!existing) {
+      return res.status(404).json({
+        ok: false,
+        error: "sentence not found"
+      });
+    }
+
+    db.prepare(`
+      DELETE FROM sentence_items WHERE id = ?
+    `).run(id);
+
+    res.json({
+      ok: true,
+      id
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
+/* ================================
    uploads
 ================================ */
 

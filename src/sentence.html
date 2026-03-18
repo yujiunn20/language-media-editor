@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Sentence Book</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Sentence Book</h1>
+
+  <div class="panel" style="margin-bottom:16px;">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input id="sentenceSearchInput" placeholder="Search sentence / translation / category" style="min-width:280px;" />
+        <input id="sentenceCategoryFilter" placeholder="Category filter (exact)" style="min-width:220px;" />
+        <button id="sentenceSearchBtn">Search</button>
+        <button id="sentenceClearBtn">Clear</button>
+      </div>
+
+      <div>
+        <a href="index.html">
+          <button type="button">Back to Editor</button>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <audio id="sentencePlayer" controls style="width:100%; margin-bottom:16px;"></audio>
+    <ul id="sentenceList"></ul>
+  </div>
+
+  <script src="sentence.js"></script>
+</body>
+</html>

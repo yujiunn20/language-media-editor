@@ -321,7 +321,7 @@ function resetEditorForNewLesson(selectedMediaName = "") {
 }
 
 function loadLessonToEditor(data) {
-  lesson.id = data.id; // 🔥 這行很重要
+  lesson.id = data.id;
   lesson.title = data.title || "";
   lesson.media = data.media_filename || "";
   lesson.clips = Array.isArray(data.clips) ? data.clips : [];
@@ -333,9 +333,6 @@ function loadLessonToEditor(data) {
 
 // ---------- library ----------
 async function initLibrary() {
-  document.getElementById("mediaFolderLabel").innerText = "data/media";
-  document.getElementById("lessonsFolderLabel").innerText = "data/lessons";
-
   await refreshFolderSelectors();
   await refreshMediaList();
   await refreshLessonList();
@@ -527,7 +524,7 @@ async function refreshLessonList() {
         }
 
         if (lesson.id === lessonItem.id) {
-          lesson.id = undefined;
+          lesson.id = null;
           lesson.title = "";
           lesson.media = "";
           lesson.clips = [];
@@ -1115,6 +1112,60 @@ document.getElementById("saveLesson").onclick = async () => {
 document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
 
 // ---------- render clips ----------
+async function saveClipAsSentence(clip, clipIndex) {
+  const jpDefault = String(clip.jp || "").trim();
+  const zhDefault = String(clip.zh || "").trim();
+  const categoryDefault = String(clip.category || "").trim();
+
+  if (!jpDefault) {
+    alert("這個 clip 沒有 jp，不能存成 sentence");
+    return;
+  }
+
+  const jp = prompt("句子（jp）", jpDefault);
+  if (jp === null) return;
+
+  const zh = prompt("翻譯（zh）", zhDefault);
+  if (zh === null) return;
+
+  const category = prompt("分類（category）", categoryDefault);
+  if (category === null) return;
+
+  const note = prompt("備註（note，可留空）", "");
+  if (note === null) return;
+
+  try {
+    const res = await fetch("/api/sentences", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        lesson_id: lesson.id ?? null,
+        clip_index: clipIndex,
+        media_filename: lesson.media || "",
+        start: clip.start,
+        end: clip.end,
+        jp: jp.trim(),
+        zh: zh.trim(),
+        category: category.trim(),
+        note: note.trim()
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Save sentence failed");
+    }
+
+    alert("已存到 Sentence Book");
+  } catch (err) {
+    console.error(err);
+    alert(`存 sentence 失敗：\n${err.message || err}`);
+  }
+}
+
 function renderClips() {
   const list = document.getElementById("clipList");
   list.innerHTML = "";
@@ -1173,7 +1224,14 @@ function renderClips() {
       setEditorMode(editingClipIndex >= 0);
     };
 
-    actions.append(playBtn, editBtn, delBtn);
+    const saveSentenceBtn = document.createElement("button");
+    saveSentenceBtn.innerText = "Save Sentence";
+    saveSentenceBtn.onclick = async () => {
+      await saveClipAsSentence(clip, i);
+    };
+
+    actions.append(playBtn, editBtn, saveSentenceBtn, delBtn);
+    
     li.append(meta, jpDiv, zhDiv, actions);
     list.appendChild(li);
   });
@@ -1200,4 +1258,7 @@ function playClip(clip) {
 player.addEventListener("pause", stopCurrentClipPlayback);
 player.addEventListener("ended", stopCurrentClipPlayback);
 
-initLibrary();
+initLibrary().catch((err) => {
+  console.error(err);
+  alert(`初始化失敗：\n${err.message || err}`);
+});
