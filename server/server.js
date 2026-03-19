@@ -987,7 +987,11 @@ app.post("/api/lessons", (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
-  clips.forEach((c, i) => {
+  const sortedClips = [...clips].sort(
+    (a, b) => Number(a.start) - Number(b.start)
+  );
+
+  sortedClips.forEach((c, i) => {
     insertClip.run(
       lessonId,
       c.start,
@@ -1601,7 +1605,11 @@ app.post("/api/upload-lesson", (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
 
-      clips.forEach((clip, i) => {
+      const sortedClips = [...clips].sort(
+        (a, b) => Number(a.start) - Number(b.start)
+      );
+      
+      sortedClips.forEach((clip, i) => {
         insertClip.run(
           lessonId,
           Number(clip.start) || 0,

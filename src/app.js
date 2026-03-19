@@ -10,10 +10,14 @@ const lesson = {
 let startTime = 0;
 let endTime = 0;
 let currentPlayInterval = null;
-let editingClipIndex = -1;
+let editingClipId = null;
 let currentMediaFolderId = null;
 let currentLessonFolderId = null;
 let moveTargetFolderId = null;
+
+function createTempClipId() {
+  return `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // ---------- helpers ----------
 function getStartInput() {
@@ -275,7 +279,7 @@ function setEditorMode(isEditing) {
     addBtn.innerText = "Update Clip";
     deleteBtn.style.display = "inline-block";
     cancelBtn.style.display = "inline-block";
-    modeLabel.innerText = `Editing clip #${editingClipIndex + 1}`;
+    modeLabel.innerText = `Editing clip`;
   } else {
     addBtn.innerText = "Add Clip";
     deleteBtn.style.display = "none";
@@ -285,18 +289,18 @@ function setEditorMode(isEditing) {
 }
 
 function exitEditMode(clearFields = true) {
-  editingClipIndex = -1;
+  editingClipId = null;
   setEditorMode(false);
   if (clearFields) {
     clearClipEditorFields();
   }
 }
 
-function loadClipIntoEditor(index) {
-  const clip = lesson.clips[index];
+function loadClipIntoEditorById(clipId) {
+  const clip = lesson.clips.find((c) => c.id === clipId);
   if (!clip) return;
 
-  editingClipIndex = index;
+  editingClipId = clipId;
 
   startTime = parseTimeInput(clip.start);
   endTime = parseTimeInput(clip.end);
@@ -324,7 +328,10 @@ function loadLessonToEditor(data) {
   lesson.id = data.id;
   lesson.title = data.title || "";
   lesson.media = data.media_filename || "";
-  lesson.clips = Array.isArray(data.clips) ? data.clips : [];
+  lesson.clips = (Array.isArray(data.clips) ? data.clips : []).map((clip) => ({
+    ...clip,
+    id: clip.id ?? createTempClipId()
+  }));
 
   getLessonTitleInput().value = lesson.title;
   exitEditMode(true);
@@ -1021,10 +1028,17 @@ document.getElementById("addClip").onclick = () => {
     category
   };
 
-  if (editingClipIndex >= 0) {
-    lesson.clips[editingClipIndex] = clipData;
+  if (editingClipId) {
+    lesson.clips = lesson.clips.map((clip) =>
+      clip.id === editingClipId
+        ? { ...clip, ...clipData }
+        : clip
+    );
   } else {
-    lesson.clips.push(clipData);
+    lesson.clips.push({
+      id: createTempClipId(),
+      ...clipData
+    });
   }
 
   renderClips();
@@ -1032,12 +1046,12 @@ document.getElementById("addClip").onclick = () => {
 };
 
 document.getElementById("deleteClipBtn").onclick = () => {
-  if (editingClipIndex < 0) return;
+  if (!editingClipId) return;
 
-  const ok = confirm(`確定要刪除第 ${editingClipIndex + 1} 個 clip 嗎？`);
+  const ok = confirm("確定要刪除這個 clip 嗎？");
   if (!ok) return;
 
-  lesson.clips.splice(editingClipIndex, 1);
+  lesson.clips = lesson.clips.filter((clip) => clip.id !== editingClipId);
   renderClips();
   exitEditMode(true);
 };
@@ -1170,7 +1184,11 @@ function renderClips() {
   const list = document.getElementById("clipList");
   list.innerHTML = "";
 
-  lesson.clips.forEach((clip, i) => {
+  const sortedClips = [...lesson.clips].sort(
+    (a, b) => parseTimeInput(a.start) - parseTimeInput(b.start)
+  );
+
+  sortedClips.forEach((clip, i) => {
     const li = document.createElement("li");
     li.className = "clip-card";
 
@@ -1203,7 +1221,7 @@ function renderClips() {
     const editBtn = document.createElement("button");
     editBtn.innerText = "Edit";
     editBtn.onclick = () => {
-      loadClipIntoEditor(i);
+      loadClipIntoEditorById(clip.id);
       seekPlayer(clip.start);
     };
 
@@ -1213,25 +1231,23 @@ function renderClips() {
       const ok = confirm(`確定要刪除第 ${i + 1} 個 clip 嗎？`);
       if (!ok) return;
 
-      if (editingClipIndex === i) {
+      if (editingClipId === clip.id) {
         exitEditMode(true);
-      } else if (editingClipIndex > i) {
-        editingClipIndex -= 1;
       }
 
-      lesson.clips.splice(i, 1);
+      lesson.clips = lesson.clips.filter((c) => c.id !== clip.id);
       renderClips();
-      setEditorMode(editingClipIndex >= 0);
+      setEditorMode(Boolean(editingClipId));
     };
 
     const saveSentenceBtn = document.createElement("button");
     saveSentenceBtn.innerText = "Save Sentence";
     saveSentenceBtn.onclick = async () => {
-      await saveClipAsSentence(clip, i);
+      const originalIndex = lesson.clips.findIndex((c) => c.id === clip.id);
+      await saveClipAsSentence(clip, originalIndex);    
     };
 
     actions.append(playBtn, editBtn, saveSentenceBtn, delBtn);
-    
     li.append(meta, jpDiv, zhDiv, actions);
     list.appendChild(li);
   });
