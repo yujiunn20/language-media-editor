@@ -20,6 +20,7 @@
       </div>
 
       <div>
+        <button id="openSentenceExportBtn" type="button">Export</button>
         <a href="index.html">
           <button type="button">Back to Editor</button>
         </a>
@@ -74,6 +75,40 @@
     </div>
     <ul id="sentenceList"></ul>
     <div id="sentencePagination" class="clip-pagination"></div>
+  </div>
+
+  <div id="sentenceExportModal" class="modal hidden">
+    <div class="modal-content export-modal-content">
+      <h3>Export Sentences</h3>
+
+      <input id="sentenceExportTitle" placeholder="Export title" style="width:100%; margin-bottom:12px;" />
+
+      <div class="export-picker">
+        <div class="export-column">
+          <div class="export-search-row">
+            <input id="sentenceExportSearchInput" placeholder="Search sentences" />
+            <select id="sentenceExportCategoryFilter">
+              <option value="">All categories</option>
+            </select>
+            <button id="sentenceExportSearchBtn" type="button">Search</button>
+          </div>
+          <div id="sentenceExportAvailableList" class="export-list"></div>
+        </div>
+
+        <div class="export-column">
+          <div class="export-selected-header">
+            <strong>Selected</strong>
+            <span id="sentenceExportSelectedCount">0</span>
+          </div>
+          <div id="sentenceExportSelectedList" class="export-list"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="sentenceExportDownloadBtn" type="button">Export ZIP</button>
+        <button id="sentenceExportCancelBtn" type="button">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="sentence.js"></script>

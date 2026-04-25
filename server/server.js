@@ -407,6 +407,103 @@ function buildLessonExportHtml(exportLesson) {
 `;
 }
 
+function buildSentenceExportHtml(exportData) {
+  const title = escapeHtml(exportData.title || "Sentence Export");
+  const dataJson = escapeJsonForHtml(exportData);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>${title}</title>
+  <style>
+    body {
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      margin: 24px;
+      background: #f7f7f7;
+      color: #222;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    .sentence {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .meta {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .jp {
+      font-size: 18px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      margin-bottom: 8px;
+    }
+    .zh {
+      color: #444;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      margin-bottom: 8px;
+    }
+    audio {
+      width: 100%;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <div id="sentenceList"></div>
+
+  <script id="export-data" type="application/json">${dataJson}</script>
+  <script>
+    const exportData = JSON.parse(document.getElementById("export-data").textContent);
+    const sentenceList = document.getElementById("sentenceList");
+
+    function formatTime(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toFixed(1) : "0.0";
+    }
+
+    exportData.sentences.forEach((item, index) => {
+      const card = document.createElement("div");
+      card.className = "sentence";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = "#" + (index + 1) + " [" + formatTime(item.start) + " - " + formatTime(item.end) + "]" +
+        (item.category ? " | " + item.category : "");
+
+      const jp = document.createElement("div");
+      jp.className = "jp";
+      jp.textContent = item.jp || "";
+
+      const zh = document.createElement("div");
+      zh.className = "zh";
+      zh.textContent = item.zh || "";
+
+      card.append(meta, jp, zh);
+
+      if (item.audio_path) {
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = item.audio_path;
+        card.appendChild(audio);
+      }
+
+      sentenceList.appendChild(card);
+    });
+  </script>
+</body>
+</html>
+`;
+}
+
 app.use(express.static(SRC_DIR));
 
 /* ================================
@@ -1736,6 +1833,116 @@ app.post("/api/sentences", async (req, res) => {
       ok: false,
       error: err.message
     });
+  }
+});
+
+app.post("/api/sentences/export", async (req, res) => {
+  let exportRoot = null;
+
+  try {
+    const title = String(req.body?.title || "").trim();
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map((id) => Number(id))
+      : [];
+
+    if (!title) {
+      return res.status(400).json({
+        ok: false,
+        error: "title required"
+      });
+    }
+
+    if (ids.length === 0 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+      return res.status(400).json({
+        ok: false,
+        error: "valid sentence ids required"
+      });
+    }
+
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = db.prepare(`
+      SELECT *
+      FROM sentence_items
+      WHERE id IN (${placeholders})
+    `).all(...ids);
+
+    if (rows.length !== ids.length) {
+      return res.status(404).json({
+        ok: false,
+        error: "Some sentences were not found"
+      });
+    }
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const orderedRows = ids.map((id) => byId.get(id));
+
+    exportRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sentence-export-"));
+
+    const safeBaseName = sanitizeFilename(title).replace(/\s+/g, "_") || "sentence-export";
+    const packageDir = path.join(exportRoot, safeBaseName);
+    const audioDir = path.join(packageDir, "audio");
+    ensureDirExists(audioDir);
+
+    const exportSentences = orderedRows.map((item, index) => {
+      let audioPath = "";
+
+      if (item.audio_filename) {
+        const audioFilename = path.basename(item.audio_filename);
+        const sourceAudioPath = path.join(SENTENCE_AUDIO_DIR, audioFilename);
+
+        if (!fs.existsSync(sourceAudioPath)) {
+          throw new Error(`Sentence audio not found: ${audioFilename}`);
+        }
+
+        const outputAudioFilename = `sentence-${index + 1}${path.extname(audioFilename) || ".mp3"}`;
+        fs.copyFileSync(sourceAudioPath, path.join(audioDir, outputAudioFilename));
+        audioPath = `audio/${encodeURIComponent(outputAudioFilename)}`;
+      }
+
+      return {
+        start: item.start,
+        end: item.end,
+        jp: item.jp || "",
+        zh: item.zh || "",
+        category: item.category || "",
+        note: item.note || "",
+        audio_path: audioPath
+      };
+    });
+
+    fs.writeFileSync(
+      path.join(packageDir, "index.html"),
+      buildSentenceExportHtml({
+        title,
+        sentences: exportSentences
+      }),
+      "utf8"
+    );
+
+    const zipPath = path.join(exportRoot, `${safeBaseName}.zip`);
+    await zipDirectory(packageDir, zipPath);
+
+    res.download(zipPath, `${safeBaseName}.zip`, (err) => {
+      fs.rm(exportRoot, { recursive: true, force: true }, () => {});
+
+      if (err && !res.headersSent) {
+        res.status(500).json({
+          ok: false,
+          error: err.message
+        });
+      }
+    });
+  } catch (err) {
+    if (exportRoot) {
+      fs.rm(exportRoot, { recursive: true, force: true }, () => {});
+    }
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        error: err.message
+      });
+    }
   }
 });
 

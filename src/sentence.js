@@ -10,6 +10,8 @@ let editingSentenceId = null;
 let sentenceCurrentPage = 1;
 let sentencePageSize = 10;
 let sentenceItems = [];
+let exportAvailableItems = [];
+const selectedExportSentences = new Map();
 
 function parseTimeInput(value) {
   const n = Number(value);
@@ -41,22 +43,36 @@ async function refreshSentenceCategoryOptions() {
   }
 
   const select = document.getElementById("sentenceCategoryFilter");
+  const exportSelect = document.getElementById("sentenceExportCategoryFilter");
   const selectedCategory = sentenceState.category;
+  const selectedExportCategory = exportSelect.value;
   select.innerHTML = "";
+  exportSelect.innerHTML = "";
 
   const allOption = document.createElement("option");
   allOption.value = "";
   allOption.innerText = "All categories";
   select.appendChild(allOption);
 
+  const exportAllOption = document.createElement("option");
+  exportAllOption.value = "";
+  exportAllOption.innerText = "All categories";
+  exportSelect.appendChild(exportAllOption);
+
   (data.categories || []).forEach((category) => {
     const option = document.createElement("option");
     option.value = category;
     option.innerText = category;
     select.appendChild(option);
+
+    const exportOption = document.createElement("option");
+    exportOption.value = category;
+    exportOption.innerText = category;
+    exportSelect.appendChild(exportOption);
   });
 
   select.value = selectedCategory;
+  exportSelect.value = selectedExportCategory;
 }
 
 function openSentenceEditor(item) {
@@ -284,6 +300,204 @@ function renderSentencePagination(container, totalSentences, pageCount, pageStar
   container.append(summary, controls);
 }
 
+function renderExportAvailableList() {
+  const list = document.getElementById("sentenceExportAvailableList");
+  list.innerHTML = "";
+
+  if (exportAvailableItems.length === 0) {
+    list.innerText = "No sentences found";
+    return;
+  }
+
+  exportAvailableItems.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "export-item";
+
+    const main = document.createElement("div");
+    main.className = "export-item-main";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedExportSentences.has(item.id);
+    checkbox.onchange = () => {
+      if (checkbox.checked) {
+        selectedExportSentences.set(item.id, item);
+      } else {
+        selectedExportSentences.delete(item.id);
+      }
+
+      renderExportAvailableList();
+      renderExportSelectedList();
+    };
+
+    const text = document.createElement("label");
+    text.className = "export-item-text";
+    text.appendChild(checkbox);
+
+    const meta = document.createElement("div");
+    meta.className = "clip-meta";
+    meta.innerText =
+      `[${formatTime(item.start)} - ${formatTime(item.end)}]` +
+      (item.category ? ` | ${item.category}` : "") +
+      (item.audio_filename ? " | audio" : " | no-audio");
+
+    const jp = document.createElement("div");
+    jp.className = "clip-jp";
+    jp.innerText = item.jp || "";
+
+    const zh = document.createElement("div");
+    zh.className = "clip-zh";
+    zh.innerText = item.zh || "";
+
+    text.append(meta, jp, zh);
+    main.append(text);
+    row.appendChild(main);
+    list.appendChild(row);
+  });
+}
+
+function renderExportSelectedList() {
+  const list = document.getElementById("sentenceExportSelectedList");
+  const count = document.getElementById("sentenceExportSelectedCount");
+  const selectedItems = Array.from(selectedExportSentences.values());
+
+  count.innerText = `${selectedItems.length} selected`;
+  list.innerHTML = "";
+
+  if (selectedItems.length === 0) {
+    list.innerText = "No sentences selected";
+    return;
+  }
+
+  selectedItems.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "export-item";
+
+    const meta = document.createElement("div");
+    meta.className = "clip-meta";
+    meta.innerText =
+      `[${formatTime(item.start)} - ${formatTime(item.end)}]` +
+      (item.category ? ` | ${item.category}` : "");
+
+    const jp = document.createElement("div");
+    jp.className = "clip-jp";
+    jp.innerText = item.jp || "";
+
+    const actions = document.createElement("div");
+    actions.className = "clip-actions";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.innerText = "Remove";
+    removeBtn.onclick = () => {
+      selectedExportSentences.delete(item.id);
+      renderExportAvailableList();
+      renderExportSelectedList();
+    };
+
+    actions.appendChild(removeBtn);
+    row.append(meta, jp, actions);
+    list.appendChild(row);
+  });
+}
+
+async function refreshExportAvailableList() {
+  const q = document.getElementById("sentenceExportSearchInput").value.trim();
+  const category = document.getElementById("sentenceExportCategoryFilter").value;
+  const params = new URLSearchParams();
+
+  if (q) {
+    params.set("q", q);
+  }
+
+  if (category) {
+    params.set("category", category);
+  }
+
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`/api/sentences${query}`);
+  const data = await res.json();
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Search sentences failed");
+  }
+
+  exportAvailableItems = data.items || [];
+  renderExportAvailableList();
+}
+
+function openSentenceExportModal() {
+  document.getElementById("sentenceExportTitle").value = "Sentence Export";
+  document.getElementById("sentenceExportSearchInput").value = "";
+  document.getElementById("sentenceExportCategoryFilter").value = "";
+  selectedExportSentences.clear();
+  exportAvailableItems = [];
+  renderExportSelectedList();
+
+  document.getElementById("sentenceExportModal").classList.remove("hidden");
+  refreshExportAvailableList().catch((err) => {
+    console.error(err);
+    alert(`搜尋句子失敗：\n${err.message || err}`);
+  });
+}
+
+function closeSentenceExportModal() {
+  document.getElementById("sentenceExportModal").classList.add("hidden");
+}
+
+async function downloadSentenceExportZip() {
+  const title = document.getElementById("sentenceExportTitle").value.trim();
+  const ids = Array.from(selectedExportSentences.keys());
+
+  if (!title) {
+    alert("請輸入 export title");
+    return;
+  }
+
+  if (ids.length === 0) {
+    alert("請至少選一個 sentence");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/sentences/export", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        title,
+        ids
+      })
+    });
+
+    if (!res.ok) {
+      let message = "Export failed";
+      try {
+        const data = await res.json();
+        message = data.error || message;
+      } catch {
+        message = res.statusText || message;
+      }
+      throw new Error(message);
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title.replace(/[\\/:*?"<>|]/g, "_") || "sentence-export"}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    closeSentenceExportModal();
+  } catch (err) {
+    console.error(err);
+    alert(`匯出失敗：\n${err.message || err}`);
+  }
+}
+
 document.getElementById("saveSentenceEditBtn").onclick = async () => {
   const id = Number(document.getElementById("editSentenceId").value);
   const jp = document.getElementById("editSentenceJp").value.trim();
@@ -374,6 +588,24 @@ document.getElementById("sentencePageSize").onchange = (event) => {
   sentenceCurrentPage = 1;
   renderSentenceList();
 };
+
+document.getElementById("openSentenceExportBtn").onclick = openSentenceExportModal;
+document.getElementById("sentenceExportCancelBtn").onclick = closeSentenceExportModal;
+document.getElementById("sentenceExportSearchBtn").onclick = () => {
+  refreshExportAvailableList().catch((err) => {
+    console.error(err);
+    alert(`搜尋句子失敗：\n${err.message || err}`);
+  });
+};
+document.getElementById("sentenceExportCategoryFilter").onchange = () => {
+  document.getElementById("sentenceExportSearchBtn").click();
+};
+document.getElementById("sentenceExportSearchInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    document.getElementById("sentenceExportSearchBtn").click();
+  }
+});
+document.getElementById("sentenceExportDownloadBtn").onclick = downloadSentenceExportZip;
 
 refreshSentenceList().catch((err) => {
   console.error(err);

@@ -236,3 +236,87 @@ textarea {
   margin-top: 12px;
   text-align: right;
 }
+
+.export-modal-content {
+  width: min(980px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+}
+
+.export-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.export-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.export-search-row input {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.export-search-row select {
+  flex: 0 1 180px;
+  padding: 6px 8px;
+}
+
+.export-list {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  min-height: 320px;
+  max-height: 55vh;
+  overflow: auto;
+  padding: 8px;
+  background: #fafafa;
+}
+
+.export-item {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.export-item-main {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.export-item-main input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  margin-top: 4px;
+}
+
+.export-item-text {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.export-item-text .clip-meta,
+.export-item-text .clip-jp,
+.export-item-text .clip-zh {
+  grid-column: 2;
+}
+
+.export-selected-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 38px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 800px) {
+  .export-picker {
+    grid-template-columns: 1fr;
+  }
+}
