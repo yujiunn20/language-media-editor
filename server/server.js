@@ -6,6 +6,7 @@ const db = require("./db");
 const multer = require("multer");
 const mime = require("mime-types");
 const { execFile } = require("child_process");
+const ffmpegStaticPath = require("ffmpeg-static");
 
 const app = express();
 
@@ -164,7 +165,7 @@ const lessonUpload = multer({
    external tools config
 ================================ */
 
-const FFMPEG_PATH = process.env.FFMPEG_PATH || "ffmpeg";
+const FFMPEG_PATH = process.env.FFMPEG_PATH || ffmpegStaticPath || "ffmpeg";
 
 const WHISPER_PATH =
   process.env.WHISPER_PATH ||
