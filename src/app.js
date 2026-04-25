@@ -885,6 +885,69 @@ document.getElementById("newLessonFolderBtn").onclick = async () => {
   }
 };
 
+async function renameCurrentFolder(kind) {
+  const isMedia = kind === "media";
+  const currentFolderId = isMedia ? currentMediaFolderId : currentLessonFolderId;
+
+  if (currentFolderId == null) {
+    alert("現在是 root，不能改名");
+    return;
+  }
+
+  try {
+    const folders = await fetchFolders(kind);
+    const currentFolder = folders.find((folder) => folder.id === currentFolderId);
+    const currentName = currentFolder?.name || "";
+    const newName = prompt(`輸入新的 ${kind} 資料夾名稱`, currentName);
+
+    if (newName === null) return;
+
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      alert("資料夾名稱不能空白");
+      return;
+    }
+
+    const res = await fetch(`/api/folders/${currentFolderId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: trimmedName
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || "Rename folder failed");
+    }
+
+    await refreshFolderSelectors();
+
+    if (isMedia) {
+      currentMediaFolderId = currentFolderId;
+      document.getElementById("mediaFolderSelect").value = String(currentFolderId);
+      await refreshMediaList();
+    } else {
+      currentLessonFolderId = currentFolderId;
+      document.getElementById("lessonFolderSelect").value = String(currentFolderId);
+      await refreshLessonList();
+    }
+  } catch (err) {
+    alert(`資料夾改名失敗：\n${err.message}`);
+  }
+}
+
+document.getElementById("renameMediaFolderBtn").onclick = () => {
+  renameCurrentFolder("media");
+};
+
+document.getElementById("renameLessonFolderBtn").onclick = () => {
+  renameCurrentFolder("lesson");
+};
+
 document.getElementById("deleteMediaFolderBtn").onclick = async () => {
   if (currentMediaFolderId == null) {
     alert("現在是 root，不能刪除");
@@ -1025,16 +1088,82 @@ document.getElementById("moveLessonFolderBtn").onclick = async () => {
   }
 };
 
+async function saveLesson(options = {}) {
+  const {
+    showSuccessAlert = true,
+    confirmEmptyClips = true
+  } = options;
+
+  const title = getLessonTitleInput().value.trim();
+
+  if (!title) {
+    alert("請先輸入 Lesson title");
+    getLessonTitleInput().focus();
+    return false;
+  }
+
+  if (!lesson.media) {
+    alert("請先選擇 Media");
+    return false;
+  }
+
+  if (confirmEmptyClips && lesson.clips.length === 0) {
+    const ok = confirm("目前沒有任何 clips，仍要儲存嗎？");
+    if (!ok) return false;
+  }
+
+  lesson.title = title;
+
+  try {
+    const res = await fetch("/api/lessons", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        ...lesson,
+        folder_id: currentLessonFolderId
+      })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || (!data.ok && !data.success)) {
+      throw new Error(data.error || "Save failed");
+    }
+
+    lesson.id = data.id;
+
+    if (showSuccessAlert) {
+      alert(`Saved:\n${data.filename || data.id || ""}`);
+    }
+
+    await refreshLessonList();
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert(`儲存失敗：\n${err.message || err}`);
+    return false;
+  }
+}
+
 // ---------- add / update clip ----------
-document.getElementById("addClip").onclick = () => {
+document.getElementById("addClip").onclick = async () => {
   syncStartEndFromInputs();
 
+  const title = getLessonTitleInput().value.trim();
   const jp = getJpInput().value.trim();
   const zh = getZhInput().value.trim();
   const category = getCategoryInput().value.trim();
 
   if (!lesson.media) {
     alert("請先在 Media Library 選一個媒體檔");
+    return;
+  }
+
+  if (!title) {
+    alert("請先輸入 Lesson title");
+    getLessonTitleInput().focus();
     return;
   }
 
@@ -1048,7 +1177,7 @@ document.getElementById("addClip").onclick = () => {
     return;
   }
 
-  lesson.title = getLessonTitleInput().value.trim();
+  lesson.title = title;
 
   const clipData = {
     start: startTime,
@@ -1076,10 +1205,18 @@ document.getElementById("addClip").onclick = () => {
   }
 
   renderClips();
-  exitEditMode(true);
+
+  const saved = await saveLesson({
+    showSuccessAlert: false,
+    confirmEmptyClips: false
+  });
+
+  if (saved) {
+    exitEditMode(true);
+  }
 };
 
-document.getElementById("deleteClipBtn").onclick = () => {
+document.getElementById("deleteClipBtn").onclick = async () => {
   if (!editingClipId) return;
 
   const ok = confirm("確定要刪除這個 clip 嗎？");
@@ -1088,6 +1225,11 @@ document.getElementById("deleteClipBtn").onclick = () => {
   lesson.clips = lesson.clips.filter((clip) => clip.id !== editingClipId);
   renderClips();
   exitEditMode(true);
+
+  await saveLesson({
+    showSuccessAlert: false,
+    confirmEmptyClips: false
+  });
 };
 
 document.getElementById("cancelEditBtn").onclick = () => {
@@ -1109,53 +1251,7 @@ document.getElementById("playEditorClipBtn").onclick = () => {
 };
 
 // ---------- save lesson ----------
-document.getElementById("saveLesson").onclick = async () => {
-  const title = getLessonTitleInput().value.trim();
-
-  if (!title) {
-    alert("請先輸入 Lesson title");
-    return;
-  }
-
-  if (!lesson.media) {
-    alert("請先選擇 Media");
-    return;
-  }
-
-  if (lesson.clips.length === 0) {
-    const ok = confirm("目前沒有任何 clips，仍要儲存嗎？");
-    if (!ok) return;
-  }
-
-  lesson.title = title;
-
-  try {
-    const res = await fetch("/api/lessons", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        ...lesson,
-        folder_id: currentLessonFolderId
-      })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok || (!data.ok && !data.success)) {
-      throw new Error(data.error || "Save failed");
-    }
-
-    lesson.id = data.id;
-
-    alert(`Saved:\n${data.filename || data.id || ""}`);
-    await refreshLessonList();
-  } catch (err) {
-    console.error(err);
-    alert(`儲存失敗：\n${err.message || err}`);
-  }
-};
+document.getElementById("saveLesson").onclick = () => saveLesson();
 
 document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
 
@@ -1273,7 +1369,7 @@ function renderClips() {
 
     const delBtn = document.createElement("button");
     delBtn.innerText = "Delete";
-    delBtn.onclick = () => {
+    delBtn.onclick = async () => {
       const ok = confirm(`確定要刪除第 ${displayIndex} 個 clip 嗎？`);
       if (!ok) return;
 
@@ -1284,6 +1380,11 @@ function renderClips() {
       lesson.clips = lesson.clips.filter((c) => c.id !== clip.id);
       renderClips();
       setEditorMode(Boolean(editingClipId));
+
+      await saveLesson({
+        showSuccessAlert: false,
+        confirmEmptyClips: false
+      });
     };
 
     const saveSentenceBtn = document.createElement("button");

@@ -442,6 +442,74 @@ app.delete("/api/folders/:id", (req, res) => {
   }
 });
 
+app.patch("/api/folders/:id", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const name = String(req.body.name || "").trim();
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid folder id"
+      });
+    }
+
+    if (!name) {
+      return res.status(400).json({
+        ok: false,
+        error: "name required"
+      });
+    }
+
+    const folder = db.prepare(`
+      SELECT * FROM folders WHERE id = ?
+    `).get(id);
+
+    if (!folder) {
+      return res.status(404).json({
+        ok: false,
+        error: "Folder not found"
+      });
+    }
+
+    const duplicate = db.prepare(`
+      SELECT id
+      FROM folders
+      WHERE name = ?
+        AND kind = ?
+        AND id != ?
+        AND (
+          (parent_id IS NULL AND ? IS NULL)
+          OR parent_id = ?
+        )
+    `).get(name, folder.kind, id, folder.parent_id, folder.parent_id);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: "同一層已有同名資料夾"
+      });
+    }
+
+    db.prepare(`
+      UPDATE folders
+      SET name = ?
+      WHERE id = ?
+    `).run(name, id);
+
+    res.json({
+      ok: true,
+      id,
+      name
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
+
 app.patch("/api/folders/:id/move", (req, res) => {
   try {
     const id = Number(req.params.id);
