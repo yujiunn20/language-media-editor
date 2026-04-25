@@ -11,7 +11,9 @@ const app = express();
 
 app.use(express.json());
 
-const DATA_DIR = path.join(__dirname, "..", "data");
+const DATA_DIR =
+  process.env.LANGUAGE_MEDIA_EDITOR_DATA_DIR ||
+  path.join(__dirname, "..", "data");
 const MEDIA_DIR = path.join(DATA_DIR, "media");
 const LESSONS_DIR = path.join(DATA_DIR, "lessons");
 const SENTENCE_AUDIO_DIR = path.join(DATA_DIR, "sentence_audio");
@@ -2210,6 +2212,17 @@ app.post("/api/upload-lesson", (req, res) => {
   });
 });
 
-app.listen(3000, "0.0.0.0", () => {
-  console.log("server running on http://0.0.0.0:3000");
-});
+function startServer(port = 3000, host = "0.0.0.0") {
+  return app.listen(port, host, () => {
+    console.log(`server running on http://${host}:${port}`);
+  });
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  startServer
+};

@@ -8,6 +8,7 @@ const http = require('node:http');
 
 let mainWindow = null;
 let serverProcess = null;
+let serverInstance = null;
 
 const mediaFolderPath = path.join(__dirname, 'media');
 const lessonsFolderPath = path.join(__dirname, 'lessons');
@@ -122,6 +123,17 @@ function waitForServer(url, timeoutMs = 8000) {
 }
 
 function startServer() {
+  if (app.isPackaged) {
+    const userDataPath = app.getPath('userData');
+
+    process.env.LANGUAGE_MEDIA_EDITOR_DATA_DIR = path.join(userDataPath, 'data');
+    process.env.LANGUAGE_MEDIA_EDITOR_DB_PATH = path.join(userDataPath, 'app.db');
+
+    const server = require('./server/server');
+    serverInstance = server.startServer(3000, '127.0.0.1');
+    return;
+  }
+
   const nodePath = process.env.npm_node_execpath || 'node';
 
   serverProcess = spawn(nodePath, [path.join(__dirname, 'server', 'server.js')], {
@@ -146,6 +158,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (serverInstance) {
+    serverInstance.close();
+    serverInstance = null;
+  }
+
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;

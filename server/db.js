@@ -1,7 +1,11 @@
 const Database = require("better-sqlite3");
 const path = require("path");
 
-const db = new Database(path.join(__dirname, "app.db"));
+const dbPath =
+  process.env.LANGUAGE_MEDIA_EDITOR_DB_PATH ||
+  path.join(__dirname, "app.db");
+
+const db = new Database(dbPath);
 
 // ===== init =====
 db.exec(`

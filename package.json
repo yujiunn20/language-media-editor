@@ -6,7 +6,38 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server/server.js",
-    "electron": "electron ."
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.yuhjiunn20.language-media-editor",
+    "productName": "Language Media Editor",
+    "asar": false,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "server/**/*",
+      "src/**/*",
+      "tools/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
@@ -15,6 +46,7 @@
     "multer": "^2.1.1"
   },
   "devDependencies": {
+    "electron-builder": "^26.0.12",
     "electron": "^41.0.2"
   }
 }
