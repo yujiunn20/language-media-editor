@@ -314,6 +314,70 @@ textarea {
   text-align: right;
 }
 
+.field-label {
+  display: block;
+  margin: 8px 0 4px;
+  color: #444;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.modal-status {
+  min-height: 20px;
+  margin-top: 8px;
+  color: #555;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.modal-status.error {
+  color: #9b1c1c;
+}
+
+.modal-status.success {
+  color: #17652f;
+}
+
+.save-sentence-modal-content {
+  width: min(640px, calc(100vw - 40px));
+  max-height: calc(100vh - 60px);
+}
+
+.save-sentence-modal-content textarea {
+  min-height: 76px;
+}
+
+.save-sentence-modal-content #saveSentenceNote {
+  min-height: 56px;
+}
+
+.app-message {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border: 1px solid #b8d2f0;
+  border-radius: 8px;
+  background: #f4f9ff;
+  color: #173b63;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  white-space: pre-wrap;
+  z-index: 20;
+}
+
+.app-message.error {
+  border-color: #e3b2b2;
+  background: #fff6f6;
+  color: #8d1f1f;
+}
+
+.app-message.success {
+  border-color: #b4dcbf;
+  background: #f4fff7;
+  color: #17652f;
+}
+
 .export-modal-content {
   width: min(980px, calc(100vw - 40px));
   max-height: calc(100vh - 60px);

@@ -16,12 +16,30 @@ let currentLessonFolderId = null;
 let moveTargetFolderId = null;
 let clipCurrentPage = 1;
 let clipPageSize = 10;
+let pendingSentenceClip = null;
+let appMessageTimer = null;
 
 function createTempClipId() {
   return `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 // ---------- helpers ----------
+function showAppMessage(message, type = "info") {
+  const el = document.getElementById("appMessage");
+  if (!el) {
+    alert(message);
+    return;
+  }
+
+  window.clearTimeout(appMessageTimer);
+  el.textContent = message;
+  el.className = `app-message ${type}`.trim();
+
+  appMessageTimer = window.setTimeout(() => {
+    el.classList.add("hidden");
+  }, type === "error" ? 6500 : 3500);
+}
+
 function getStartInput() {
   return document.getElementById("startTime");
 }
@@ -1265,6 +1283,14 @@ document.getElementById("saveLesson").onclick = () => saveLesson();
 
 document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
 
+document.getElementById("saveSentenceConfirmBtn").onclick = confirmSaveSentence;
+document.getElementById("saveSentenceCancelBtn").onclick = closeSaveSentenceModal;
+document.getElementById("saveSentenceModal").onclick = (event) => {
+  if (event.target.id === "saveSentenceModal") {
+    closeSaveSentenceModal();
+  }
+};
+
 document.getElementById("clipPageSize").onchange = (event) => {
   clipPageSize = Number(event.target.value) || 10;
   clipCurrentPage = 1;
@@ -1272,29 +1298,67 @@ document.getElementById("clipPageSize").onchange = (event) => {
 };
 
 // ---------- render clips ----------
-async function saveClipAsSentence(clip, clipIndex) {
+function setSaveSentenceStatus(message, type = "info") {
+  const status = document.getElementById("saveSentenceStatus");
+  if (!status) return;
+
+  status.textContent = message || "";
+  status.className = `modal-status ${type}`.trim();
+}
+
+function closeSaveSentenceModal() {
+  document.getElementById("saveSentenceModal").classList.add("hidden");
+  pendingSentenceClip = null;
+  setSaveSentenceStatus("");
+}
+
+function openSaveSentenceModal(clip, clipIndex) {
   const jpDefault = String(clip.jp || "").trim();
   const zhDefault = String(clip.zh || "").trim();
   const categoryDefault = String(clip.category || "").trim();
 
   if (!jpDefault) {
-    alert("這個 clip 沒有 jp，不能存成 sentence");
+    showAppMessage("這個 clip 沒有 Japanese sentence，不能存成 Sentence。", "error");
     return;
   }
 
-  const jp = prompt("句子（jp）", jpDefault);
-  if (jp === null) return;
+  if (!lesson.media) {
+    showAppMessage("這個 lesson 沒有媒體檔，不能切出 sentence 音檔。", "error");
+    return;
+  }
 
-  const zh = prompt("翻譯（zh）", zhDefault);
-  if (zh === null) return;
+  pendingSentenceClip = { clip, clipIndex };
+  document.getElementById("saveSentenceJp").value = jpDefault;
+  document.getElementById("saveSentenceZh").value = zhDefault;
+  document.getElementById("saveSentenceCategory").value = categoryDefault;
+  document.getElementById("saveSentenceNote").value = "";
+  setSaveSentenceStatus("");
+  document.getElementById("saveSentenceModal").classList.remove("hidden");
+  document.getElementById("saveSentenceJp").focus();
+}
 
-  const category = prompt("分類（category）", categoryDefault);
-  if (category === null) return;
+async function confirmSaveSentence() {
+  if (!pendingSentenceClip) return;
 
-  const note = prompt("備註（note，可留空）", "");
-  if (note === null) return;
+  const { clip, clipIndex } = pendingSentenceClip;
+  const jp = document.getElementById("saveSentenceJp").value.trim();
+  const zh = document.getElementById("saveSentenceZh").value.trim();
+  const category = document.getElementById("saveSentenceCategory").value.trim();
+  const note = document.getElementById("saveSentenceNote").value.trim();
+  const confirmBtn = document.getElementById("saveSentenceConfirmBtn");
+  const cancelBtn = document.getElementById("saveSentenceCancelBtn");
+
+  if (!jp) {
+    setSaveSentenceStatus("Japanese sentence 不能空白。", "error");
+    document.getElementById("saveSentenceJp").focus();
+    return;
+  }
 
   try {
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    setSaveSentenceStatus("Saving sentence...");
+
     const res = await fetch("/api/sentences", {
       method: "POST",
       headers: {
@@ -1313,16 +1377,20 @@ async function saveClipAsSentence(clip, clipIndex) {
       })
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.ok) {
       throw new Error(data.error || "Save sentence failed");
     }
 
-    alert("已存到 Sentence Book");
+    closeSaveSentenceModal();
+    showAppMessage("已存到 Sentence Book。", "success");
   } catch (err) {
     console.error(err);
-    alert(`存 sentence 失敗：\n${err.message || err}`);
+    setSaveSentenceStatus(`存 sentence 失敗：\n${err.message || err}`, "error");
+  } finally {
+    confirmBtn.disabled = false;
+    cancelBtn.disabled = false;
   }
 }
 
@@ -1401,7 +1469,7 @@ function renderClips() {
     saveSentenceBtn.innerText = "Save Sentence";
     saveSentenceBtn.onclick = async () => {
       const originalIndex = lesson.clips.findIndex((c) => c.id === clip.id);
-      await saveClipAsSentence(clip, originalIndex);    
+      openSaveSentenceModal(clip, originalIndex);
     };
 
     actions.append(playBtn, editBtn, saveSentenceBtn, delBtn);

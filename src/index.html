@@ -100,6 +100,33 @@
     </div>
   </div>
 
+  <div id="appMessage" class="app-message hidden"></div>
+
+  <div id="saveSentenceModal" class="modal hidden">
+    <div class="modal-content save-sentence-modal-content">
+      <h3>Save Sentence</h3>
+
+      <label class="field-label" for="saveSentenceJp">Japanese sentence</label>
+      <textarea id="saveSentenceJp"></textarea>
+
+      <label class="field-label" for="saveSentenceZh">Chinese translation</label>
+      <textarea id="saveSentenceZh"></textarea>
+
+      <label class="field-label" for="saveSentenceCategory">Category</label>
+      <input id="saveSentenceCategory" />
+
+      <label class="field-label" for="saveSentenceNote">Note</label>
+      <textarea id="saveSentenceNote"></textarea>
+
+      <div id="saveSentenceStatus" class="modal-status"></div>
+
+      <div class="modal-actions">
+        <button id="saveSentenceConfirmBtn">Save</button>
+        <button id="saveSentenceCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="moveModal" class="modal hidden">
     <div class="modal-content">
       <h3>Move to folder</h3>
