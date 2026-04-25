@@ -14,6 +14,8 @@ let editingClipId = null;
 let currentMediaFolderId = null;
 let currentLessonFolderId = null;
 let moveTargetFolderId = null;
+let clipCurrentPage = 1;
+let clipPageSize = 10;
 
 function createTempClipId() {
   return `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -237,6 +239,32 @@ function formatTime(value) {
   return parseTimeInput(value).toFixed(1);
 }
 
+function getSortedClips() {
+  return [...lesson.clips].sort(
+    (a, b) => parseTimeInput(a.start) - parseTimeInput(b.start)
+  );
+}
+
+function getClipPageCount(totalClips = lesson.clips.length) {
+  return Math.max(1, Math.ceil(totalClips / clipPageSize));
+}
+
+function clampClipPage(totalClips = lesson.clips.length) {
+  clipCurrentPage = Math.min(
+    Math.max(1, clipCurrentPage),
+    getClipPageCount(totalClips)
+  );
+}
+
+function setClipPageForClip(clipId) {
+  const sortedClips = getSortedClips();
+  const index = sortedClips.findIndex((clip) => clip.id === clipId);
+
+  if (index >= 0) {
+    clipCurrentPage = Math.floor(index / clipPageSize) + 1;
+  }
+}
+
 function syncStartEndFromInputs() {
   startTime = parseTimeInput(getStartInput().value);
   endTime = parseTimeInput(getEndInput().value);
@@ -318,6 +346,7 @@ function resetEditorForNewLesson(selectedMediaName = "") {
   lesson.title = "";
   lesson.media = selectedMediaName;
   lesson.clips = [];
+  clipCurrentPage = 1;
 
   getLessonTitleInput().value = "";
   exitEditMode(true);
@@ -332,6 +361,7 @@ function loadLessonToEditor(data) {
     ...clip,
     id: clip.id ?? createTempClipId()
   }));
+  clipCurrentPage = 1;
 
   getLessonTitleInput().value = lesson.title;
   exitEditMode(true);
@@ -1034,11 +1064,15 @@ document.getElementById("addClip").onclick = () => {
         ? { ...clip, ...clipData }
         : clip
     );
+    setClipPageForClip(editingClipId);
   } else {
-    lesson.clips.push({
+    const newClip = {
       id: createTempClipId(),
       ...clipData
-    });
+    };
+
+    lesson.clips.push(newClip);
+    setClipPageForClip(newClip.id);
   }
 
   renderClips();
@@ -1125,6 +1159,12 @@ document.getElementById("saveLesson").onclick = async () => {
 
 document.getElementById("transcribeClipBtn").onclick = transcribeCurrentClip;
 
+document.getElementById("clipPageSize").onchange = (event) => {
+  clipPageSize = Number(event.target.value) || 10;
+  clipCurrentPage = 1;
+  renderClips();
+};
+
 // ---------- render clips ----------
 async function saveClipAsSentence(clip, clipIndex) {
   const jpDefault = String(clip.jp || "").trim();
@@ -1182,13 +1222,19 @@ async function saveClipAsSentence(clip, clipIndex) {
 
 function renderClips() {
   const list = document.getElementById("clipList");
+  const pagination = document.getElementById("clipPagination");
   list.innerHTML = "";
 
-  const sortedClips = [...lesson.clips].sort(
-    (a, b) => parseTimeInput(a.start) - parseTimeInput(b.start)
-  );
+  const sortedClips = getSortedClips();
+  const totalClips = sortedClips.length;
+  const pageCount = getClipPageCount(totalClips);
+  clampClipPage(totalClips);
 
-  sortedClips.forEach((clip, i) => {
+  const pageStart = (clipCurrentPage - 1) * clipPageSize;
+  const visibleClips = sortedClips.slice(pageStart, pageStart + clipPageSize);
+
+  visibleClips.forEach((clip, i) => {
+    const displayIndex = pageStart + i + 1;
     const li = document.createElement("li");
     li.className = "clip-card";
 
@@ -1228,7 +1274,7 @@ function renderClips() {
     const delBtn = document.createElement("button");
     delBtn.innerText = "Delete";
     delBtn.onclick = () => {
-      const ok = confirm(`確定要刪除第 ${i + 1} 個 clip 嗎？`);
+      const ok = confirm(`確定要刪除第 ${displayIndex} 個 clip 嗎？`);
       if (!ok) return;
 
       if (editingClipId === clip.id) {
@@ -1251,6 +1297,49 @@ function renderClips() {
     li.append(meta, jpDiv, zhDiv, actions);
     list.appendChild(li);
   });
+
+  renderClipPagination(pagination, totalClips, pageCount, pageStart, visibleClips.length);
+}
+
+function renderClipPagination(container, totalClips, pageCount, pageStart, visibleCount) {
+  container.innerHTML = "";
+
+  const summary = document.createElement("span");
+  summary.className = "clip-page-summary";
+
+  if (totalClips === 0) {
+    summary.innerText = "0 clips";
+  } else {
+    summary.innerText = `${pageStart + 1}-${pageStart + visibleCount} / ${totalClips} clips`;
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "clip-page-controls";
+
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.innerText = "Prev";
+  prevBtn.disabled = clipCurrentPage <= 1;
+  prevBtn.onclick = () => {
+    clipCurrentPage -= 1;
+    renderClips();
+  };
+
+  const pageLabel = document.createElement("span");
+  pageLabel.className = "clip-page-label";
+  pageLabel.innerText = `Page ${clipCurrentPage} / ${pageCount}`;
+
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.innerText = "Next";
+  nextBtn.disabled = clipCurrentPage >= pageCount;
+  nextBtn.onclick = () => {
+    clipCurrentPage += 1;
+    renderClips();
+  };
+
+  controls.append(prevBtn, pageLabel, nextBtn);
+  container.append(summary, controls);
 }
 
 // ---------- playback ----------

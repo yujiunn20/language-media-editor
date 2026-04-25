@@ -146,6 +146,53 @@ textarea {
   padding-left: 0;
 }
 
+.clip-list-header,
+.sentence-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.clip-list-header h3,
+.sentence-list-header h3 {
+  margin: 0;
+}
+
+.clip-page-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #555;
+  font-size: 14px;
+}
+
+.clip-page-size select {
+  padding: 4px 8px;
+}
+
+.clip-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  color: #555;
+  flex-wrap: wrap;
+}
+
+.clip-page-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clip-page-label,
+.clip-page-summary {
+  font-size: 14px;
+}
+
 .modal {
   position: fixed;
   top: 0;

@@ -59,7 +59,19 @@
       </div>
     </div>
 
+    <div class="sentence-list-header">
+      <h3>Sentence List</h3>
+      <label class="clip-page-size">
+        Per page
+        <select id="sentencePageSize">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+        </select>
+      </label>
+    </div>
     <ul id="sentenceList"></ul>
+    <div id="sentencePagination" class="clip-pagination"></div>
   </div>
 
   <script src="sentence.js"></script>

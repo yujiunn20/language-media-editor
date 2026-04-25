@@ -76,8 +76,19 @@
         <div id="editorModeLabel" style="margin-top:6px; color:#666;"></div>
       </div>
 
-      <h3>Clip List</h3>
+      <div class="clip-list-header">
+        <h3>Clip List</h3>
+        <label class="clip-page-size">
+          Per page
+          <select id="clipPageSize">
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+      </div>
       <ul id="clipList"></ul>
+      <div id="clipPagination" class="clip-pagination"></div>
     </div>
   </div>
 

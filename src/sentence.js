@@ -7,6 +7,9 @@ const sentenceState = {
 
 let currentSentenceTimeHandler = null;
 let editingSentenceId = null;
+let sentenceCurrentPage = 1;
+let sentencePageSize = 10;
+let sentenceItems = [];
 
 function parseTimeInput(value) {
   const n = Number(value);
@@ -16,6 +19,17 @@ function parseTimeInput(value) {
 
 function formatTime(value) {
   return parseTimeInput(value).toFixed(1);
+}
+
+function getSentencePageCount(totalSentences = sentenceItems.length) {
+  return Math.max(1, Math.ceil(totalSentences / sentencePageSize));
+}
+
+function clampSentencePage(totalSentences = sentenceItems.length) {
+  sentenceCurrentPage = Math.min(
+    Math.max(1, sentenceCurrentPage),
+    getSentencePageCount(totalSentences)
+  );
 }
 
 function openSentenceEditor(item) {
@@ -61,12 +75,24 @@ async function refreshSentenceList() {
     throw new Error(data.error || "Load sentences failed");
   }
 
+  sentenceItems = data.items || [];
+  renderSentenceList();
+}
+
+function renderSentenceList() {
   const list = document.getElementById("sentenceList");
+  const pagination = document.getElementById("sentencePagination");
+
   list.innerHTML = "";
 
-  const items = data.items || [];
+  const totalSentences = sentenceItems.length;
+  const pageCount = getSentencePageCount(totalSentences);
+  clampSentencePage(totalSentences);
 
-  items.forEach((item) => {
+  const pageStart = (sentenceCurrentPage - 1) * sentencePageSize;
+  const visibleItems = sentenceItems.slice(pageStart, pageStart + sentencePageSize);
+
+  visibleItems.forEach((item) => {
     const li = document.createElement("li");
     li.className = "clip-card";
 
@@ -179,6 +205,56 @@ async function refreshSentenceList() {
     li.append(meta, jpDiv, zhDiv, noteDiv, actions);
     list.appendChild(li);
   });
+
+  renderSentencePagination(
+    pagination,
+    totalSentences,
+    pageCount,
+    pageStart,
+    visibleItems.length
+  );
+}
+
+function renderSentencePagination(container, totalSentences, pageCount, pageStart, visibleCount) {
+  container.innerHTML = "";
+
+  const summary = document.createElement("span");
+  summary.className = "clip-page-summary";
+
+  if (totalSentences === 0) {
+    summary.innerText = "0 sentences";
+  } else {
+    summary.innerText =
+      `${pageStart + 1}-${pageStart + visibleCount} / ${totalSentences} sentences`;
+  }
+
+  const controls = document.createElement("div");
+  controls.className = "clip-page-controls";
+
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.innerText = "Prev";
+  prevBtn.disabled = sentenceCurrentPage <= 1;
+  prevBtn.onclick = () => {
+    sentenceCurrentPage -= 1;
+    renderSentenceList();
+  };
+
+  const pageLabel = document.createElement("span");
+  pageLabel.className = "clip-page-label";
+  pageLabel.innerText = `Page ${sentenceCurrentPage} / ${pageCount}`;
+
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.innerText = "Next";
+  nextBtn.disabled = sentenceCurrentPage >= pageCount;
+  nextBtn.onclick = () => {
+    sentenceCurrentPage += 1;
+    renderSentenceList();
+  };
+
+  controls.append(prevBtn, pageLabel, nextBtn);
+  container.append(summary, controls);
 }
 
 document.getElementById("saveSentenceEditBtn").onclick = async () => {
@@ -233,6 +309,7 @@ document.getElementById("cancelSentenceEditBtn").onclick = () => {
 document.getElementById("sentenceSearchBtn").onclick = async () => {
   sentenceState.q = document.getElementById("sentenceSearchInput").value.trim();
   sentenceState.category = document.getElementById("sentenceCategoryFilter").value.trim();
+  sentenceCurrentPage = 1;
 
   try {
     await refreshSentenceList();
@@ -245,6 +322,7 @@ document.getElementById("sentenceSearchBtn").onclick = async () => {
 document.getElementById("sentenceClearBtn").onclick = async () => {
   sentenceState.q = "";
   sentenceState.category = "";
+  sentenceCurrentPage = 1;
 
   document.getElementById("sentenceSearchInput").value = "";
   document.getElementById("sentenceCategoryFilter").value = "";
@@ -257,6 +335,12 @@ document.getElementById("sentenceClearBtn").onclick = async () => {
     console.error(err);
     alert(`重整 sentence 失敗：\n${err.message || err}`);
   }
+};
+
+document.getElementById("sentencePageSize").onchange = (event) => {
+  sentencePageSize = Number(event.target.value) || 10;
+  sentenceCurrentPage = 1;
+  renderSentenceList();
 };
 
 refreshSentenceList().catch((err) => {
