@@ -167,30 +167,21 @@ const lessonUpload = multer({
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || ffmpegStaticPath || "ffmpeg";
 
+const WHISPER_DIR = path.join(__dirname, "..", "tools", "whisper");
+const WHISPER_EXECUTABLE = process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli";
 const WHISPER_PATH =
   process.env.WHISPER_PATH ||
-  path.join(
-    __dirname,
-    "..",
-    "tools",
-    "whisper",
-    "whisper",
-    "build",
-    "bin",
-    process.platform === "win32" ? "whisper-cli.exe" : "whisper-cli"
-  );
+  path.join(WHISPER_DIR, WHISPER_EXECUTABLE);
 
 const WHISPER_MODEL_PATH =
   process.env.WHISPER_MODEL_PATH ||
-  path.join(
-    __dirname,
-    "..",
-    "tools",
-    "whisper",
-    "whisper",
-    "models",
-    "ggml-base.bin"
-  );
+  path.join(WHISPER_DIR, "models", "ggml-base.bin");
+
+function assertToolExists(toolPath, label) {
+  if (!fs.existsSync(toolPath)) {
+    throw new Error(`${label} not found: ${toolPath}`);
+  }
+}
   
 function cleanWhisperText(raw = "") {
   return raw
@@ -1540,6 +1531,16 @@ app.post("/api/transcribe", (req, res) => {
     });
   }
 
+  try {
+    assertToolExists(WHISPER_PATH, "whisper-cli");
+    assertToolExists(WHISPER_MODEL_PATH, "Whisper model");
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      error: `${err.message}\n請確認下載的是新版 release，或設定 WHISPER_PATH / WHISPER_MODEL_PATH。`
+    });
+  }
+
   const tempWavPath = path.join(DATA_DIR, `temp-${Date.now()}.wav`);
 
   execFile(
@@ -1575,7 +1576,7 @@ app.post("/api/transcribe", (req, res) => {
           "-m", WHISPER_MODEL_PATH,
           "-otxt"
         ],
-        { cwd: path.join(__dirname, "..", "tools", "whisper", "whisper") },
+        { cwd: path.dirname(WHISPER_PATH) },
         (whisperErr, stdout, stderr) => {
           try {
             const txtPath = `${tempWavPath}.txt`;

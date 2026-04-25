@@ -34,6 +34,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare Whisper CLI and model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/whisper/models
+          curl -L --retry 3 -o tools/whisper/models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git .whisper-src
+          cmake -S .whisper-src -B .whisper-build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON
+          cmake --build .whisper-build --config Release --target whisper-cli
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            cp .whisper-build/bin/Release/whisper-cli.exe tools/whisper/whisper-cli.exe
+            find .whisper-build/bin/Release -maxdepth 1 -name '*.dll' -exec cp {} tools/whisper/ \;
+          else
+            cp .whisper-build/bin/whisper-cli tools/whisper/whisper-cli
+            chmod +x tools/whisper/whisper-cli
+          fi
+
       - name: Build Windows app
         if: runner.os == 'Windows'
         run: npm run dist:win
