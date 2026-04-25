@@ -3,9 +3,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
+const http = require('node:http');
 
 
 let mainWindow = null;
+let serverProcess = null;
 
 const mediaFolderPath = path.join(__dirname, 'media');
 const lessonsFolderPath = path.join(__dirname, 'lessons');
@@ -88,16 +90,66 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  mainWindow.loadURL('http://127.0.0.1:3000');
 }
 
-app.whenReady().then(() => {
+function waitForServer(url, timeoutMs = 8000) {
+  const startedAt = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const req = http.get(url, (res) => {
+        res.resume();
+        resolve();
+      });
+
+      req.on('error', () => {
+        if (Date.now() - startedAt > timeoutMs) {
+          reject(new Error(`Server did not start in time: ${url}`));
+          return;
+        }
+
+        setTimeout(check, 250);
+      });
+
+      req.setTimeout(1000, () => {
+        req.destroy();
+      });
+    };
+
+    check();
+  });
+}
+
+function startServer() {
+  const nodePath = process.env.npm_node_execpath || 'node';
+
+  serverProcess = spawn(nodePath, [path.join(__dirname, 'server', 'server.js')], {
+    cwd: __dirname,
+    stdio: 'inherit'
+  });
+
+  serverProcess.on('exit', () => {
+    serverProcess = null;
+  });
+}
+
+app.whenReady().then(async () => {
   ensureAppFolders();
+  startServer();
+  await waitForServer('http://127.0.0.1:3000');
   createWindow();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (serverProcess) {
+    serverProcess.kill();
+    serverProcess = null;
+  }
 });
 
 ipcMain.handle('get-library-paths', async () => {

@@ -12,29 +12,37 @@
     <div class="sidebar panel">
       <h3>Media Library</h3>
 
-      <select id="mediaFolderSelect">
-        <option value="">(root)</option>
-      </select>
+      <div class="library-toolbar">
+        <select id="mediaFolderSelect">
+          <option value="">(root)</option>
+        </select>
 
-      <button id="newMediaFolderBtn">New Folder</button>
-      <button id="renameMediaFolderBtn">Rename Folder</button>
-      <button id="moveMediaFolderBtn">Move Folder</button>
-      <button id="deleteMediaFolderBtn">Delete Folder</button>
-      <button id="importMediaBtn">Import Media</button>
+        <div class="library-button-grid">
+          <button id="newMediaFolderBtn">New Folder</button>
+          <button id="renameMediaFolderBtn">Rename Folder</button>
+          <button id="moveMediaFolderBtn">Move Folder</button>
+          <button id="deleteMediaFolderBtn">Delete Folder</button>
+          <button id="importMediaBtn">Import Media</button>
+        </div>
+      </div>
 
       <ul id="mediaList"></ul>
 
       <h3>Lesson Library</h3>
 
-      <select id="lessonFolderSelect">
-        <option value="">(root)</option>
-      </select>
+      <div class="library-toolbar">
+        <select id="lessonFolderSelect">
+          <option value="">(root)</option>
+        </select>
 
-      <button id="newLessonFolderBtn">New Folder</button>
-      <button id="renameLessonFolderBtn">Rename Folder</button>
-      <button id="moveLessonFolderBtn">Move Folder</button>
-      <button id="deleteLessonFolderBtn">Delete Folder</button>
-      <button id="importLessonBtn">Import Lesson</button>
+        <div class="library-button-grid">
+          <button id="newLessonFolderBtn">New Folder</button>
+          <button id="renameLessonFolderBtn">Rename Folder</button>
+          <button id="moveLessonFolderBtn">Move Folder</button>
+          <button id="deleteLessonFolderBtn">Delete Folder</button>
+          <button id="importLessonBtn">Import Lesson</button>
+        </div>
+      </div>
 
       <ul id="lessonList"></ul>
     </div>

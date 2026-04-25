@@ -392,9 +392,10 @@ async function refreshMediaList() {
 
   items.forEach((item) => {
     const li = document.createElement("li");
-    li.className = "clip-card";
+    li.className = "library-card";
 
     const nameDiv = document.createElement("div");
+    nameDiv.className = "library-card-title";
     nameDiv.innerText = item.display_name || item.filename;
     nameDiv.style.cursor = "pointer";
     nameDiv.onclick = () => {
@@ -403,7 +404,7 @@ async function refreshMediaList() {
     };
 
     const actions = document.createElement("div");
-    actions.className = "clip-actions";
+    actions.className = "library-card-actions";
 
     const deleteBtn = document.createElement("button");
     deleteBtn.innerText = "Delete";
@@ -521,9 +522,10 @@ async function refreshLessonList() {
 
   lessons.forEach((lessonItem) => {
     const li = document.createElement("li");
-    li.className = "clip-card";
+    li.className = "library-card";
 
     const nameDiv = document.createElement("div");
+    nameDiv.className = "library-card-title";
     nameDiv.innerText = lessonItem.title;
     nameDiv.style.cursor = "pointer";
 
@@ -539,7 +541,7 @@ async function refreshLessonList() {
     };
 
     const actions = document.createElement("div");
-    actions.className = "clip-actions";
+    actions.className = "library-card-actions";
 
     const deleteBtn = document.createElement("button");
     deleteBtn.innerText = "Delete";
