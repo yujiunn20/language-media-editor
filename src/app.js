@@ -502,7 +502,7 @@ async function refreshMediaList() {
 
     actions.appendChild(renameBtn);
     actions.appendChild(moveBtn);
-    actions.appendChild(deleteBtn);    
+    actions.appendChild(deleteBtn);
     li.append(nameDiv, actions);
     list.appendChild(li);
   });
@@ -651,8 +651,16 @@ async function refreshLessonList() {
       }
     };
 
+    const exportBtn = document.createElement("button");
+    exportBtn.innerText = "Export";
+    exportBtn.onclick = (e) => {
+      e.stopPropagation();
+      window.location.href = `/api/lessons/${lessonItem.id}/export`;
+    };
+
     actions.appendChild(renameBtn);
     actions.appendChild(moveBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(deleteBtn);
 
     li.append(nameDiv, actions);

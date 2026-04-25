@@ -1,5 +1,6 @@
 const express = require("express");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const db = require("./db");
 const multer = require("multer");
@@ -237,6 +238,173 @@ function cutSentenceAudio({ mediaFilename, start, end, sentenceId }) {
       }
     );
   });
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeJsonForHtml(data) {
+  return JSON.stringify(data)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
+function zipDirectory(sourceDir, outputPath) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "zip",
+      ["-r", "-q", outputPath, "."],
+      { cwd: sourceDir },
+      (err) => {
+        if (err) {
+          reject(new Error(`zip failed: ${err.message}`));
+          return;
+        }
+
+        resolve();
+      }
+    );
+  });
+}
+
+function buildLessonExportHtml(exportLesson) {
+  const title = escapeHtml(exportLesson.title || "Lesson");
+  const dataJson = escapeJsonForHtml(exportLesson);
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>${title}</title>
+  <style>
+    body {
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      margin: 24px;
+      background: #f7f7f7;
+      color: #222;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    video,
+    audio {
+      width: 100%;
+      max-width: 960px;
+      background: #000;
+      border-radius: 8px;
+      display: block;
+      margin-bottom: 16px;
+    }
+    .clip {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .meta {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .jp {
+      font-size: 18px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      margin-bottom: 8px;
+    }
+    .zh {
+      color: #444;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      margin-bottom: 8px;
+    }
+    button {
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <div id="mediaHost"></div>
+  <div id="clipList"></div>
+
+  <script id="lesson-data" type="application/json">${dataJson}</script>
+  <script>
+    const lesson = JSON.parse(document.getElementById("lesson-data").textContent);
+    const mediaHost = document.getElementById("mediaHost");
+    const clipList = document.getElementById("clipList");
+    const mediaPath = lesson.media_path || "";
+    const isAudio = /\\.(mp3|wav|m4a|aac|ogg)$/i.test(mediaPath);
+    const player = document.createElement(isAudio ? "audio" : "video");
+    player.controls = true;
+    player.src = mediaPath;
+    mediaHost.appendChild(player);
+
+    function formatTime(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toFixed(1) : "0.0";
+    }
+
+    let stopAtEnd = null;
+
+    function playClip(clip) {
+      if (stopAtEnd) {
+        player.removeEventListener("timeupdate", stopAtEnd);
+        stopAtEnd = null;
+      }
+
+      player.currentTime = Number(clip.start) || 0;
+      player.play();
+
+      stopAtEnd = () => {
+        if (player.currentTime >= Number(clip.end) || player.ended) {
+          player.pause();
+          player.removeEventListener("timeupdate", stopAtEnd);
+          stopAtEnd = null;
+        }
+      };
+
+      player.addEventListener("timeupdate", stopAtEnd);
+    }
+
+    lesson.clips.forEach((clip, index) => {
+      const card = document.createElement("div");
+      card.className = "clip";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = "#" + (index + 1) + " [" + formatTime(clip.start) + " - " + formatTime(clip.end) + "]" +
+        (clip.category ? " | " + clip.category : "");
+
+      const jp = document.createElement("div");
+      jp.className = "jp";
+      jp.textContent = clip.jp || "";
+
+      const zh = document.createElement("div");
+      zh.className = "zh";
+      zh.textContent = clip.zh || "";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Play Clip";
+      btn.onclick = () => playClip(clip);
+
+      card.append(meta, jp, zh, btn);
+      clipList.appendChild(card);
+    });
+  </script>
+</body>
+</html>
+`;
 }
 
 app.use(express.static(SRC_DIR));
@@ -922,6 +1090,110 @@ app.get("/api/lessons/:id", (req, res) => {
   res.json(lesson);
 });
 
+app.get("/api/lessons/:id/export", async (req, res) => {
+  let exportRoot = null;
+
+  try {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid lesson id"
+      });
+    }
+
+    const lessonRow = db.prepare(`
+      SELECT * FROM lessons WHERE id = ?
+    `).get(id);
+
+    if (!lessonRow) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lesson not found"
+      });
+    }
+
+    exportRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lesson-export-"));
+
+    const clips = db.prepare(`
+      SELECT start, end, jp, zh, category, sort_order
+      FROM clips
+      WHERE lesson_id = ?
+      ORDER BY sort_order
+    `).all(id);
+
+    const exportTitle = lessonRow.title || `lesson-${id}`;
+    const safeBaseName = sanitizeFilename(exportTitle).replace(/\s+/g, "_") || `lesson-${id}`;
+    const packageDir = path.join(exportRoot, safeBaseName);
+    const mediaDir = path.join(packageDir, "media");
+    ensureDirExists(mediaDir);
+
+    let mediaPath = "";
+
+    if (lessonRow.media_filename) {
+      const mediaFilename = path.basename(lessonRow.media_filename);
+      const sourceMediaPath = path.join(MEDIA_DIR, mediaFilename);
+
+      if (!fs.existsSync(sourceMediaPath)) {
+        fs.rm(exportRoot, { recursive: true, force: true }, () => {});
+        exportRoot = null;
+
+        return res.status(404).json({
+          ok: false,
+          error: `Media file not found: ${mediaFilename}`
+        });
+      }
+
+      fs.copyFileSync(sourceMediaPath, path.join(mediaDir, mediaFilename));
+      mediaPath = `media/${encodeURIComponent(mediaFilename)}`;
+    }
+
+    const exportLesson = {
+      title: exportTitle,
+      media_path: mediaPath,
+      clips: clips.map((clip) => ({
+        start: clip.start,
+        end: clip.end,
+        jp: clip.jp || "",
+        zh: clip.zh || "",
+        category: clip.category || ""
+      }))
+    };
+
+    fs.writeFileSync(
+      path.join(packageDir, "index.html"),
+      buildLessonExportHtml(exportLesson),
+      "utf8"
+    );
+
+    const zipPath = path.join(exportRoot, `${safeBaseName}.zip`);
+    await zipDirectory(packageDir, zipPath);
+
+    res.download(zipPath, `${safeBaseName}.zip`, (err) => {
+      fs.rm(exportRoot, { recursive: true, force: true }, () => {});
+
+      if (err && !res.headersSent) {
+        res.status(500).json({
+          ok: false,
+          error: err.message
+        });
+      }
+    });
+  } catch (err) {
+    if (exportRoot) {
+      fs.rm(exportRoot, { recursive: true, force: true }, () => {});
+    }
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        error: err.message
+      });
+    }
+  }
+});
+
 app.delete("/api/lessons/:id", (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1250,6 +1522,28 @@ app.post("/api/transcribe", (req, res) => {
 /* ================================
    sentences
 ================================ */
+
+app.get("/api/sentence-categories", (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT category
+      FROM sentence_items
+      WHERE category IS NOT NULL
+        AND TRIM(category) != ''
+      ORDER BY category COLLATE NOCASE
+    `).all();
+
+    res.json({
+      ok: true,
+      categories: rows.map((row) => row.category)
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
 
 app.get("/api/sentences", (req, res) => {
   try {

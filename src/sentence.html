@@ -12,7 +12,9 @@
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <input id="sentenceSearchInput" placeholder="Search sentence / translation / category" style="min-width:280px;" />
-        <input id="sentenceCategoryFilter" placeholder="Category filter (exact)" style="min-width:220px;" />
+        <select id="sentenceCategoryFilter" style="min-width:220px;">
+          <option value="">All categories</option>
+        </select>
         <button id="sentenceSearchBtn">Search</button>
         <button id="sentenceClearBtn">Clear</button>
       </div>

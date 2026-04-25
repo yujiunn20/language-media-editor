@@ -32,6 +32,33 @@ function clampSentencePage(totalSentences = sentenceItems.length) {
   );
 }
 
+async function refreshSentenceCategoryOptions() {
+  const res = await fetch("/api/sentence-categories");
+  const data = await res.json();
+
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "Load categories failed");
+  }
+
+  const select = document.getElementById("sentenceCategoryFilter");
+  const selectedCategory = sentenceState.category;
+  select.innerHTML = "";
+
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.innerText = "All categories";
+  select.appendChild(allOption);
+
+  (data.categories || []).forEach((category) => {
+    const option = document.createElement("option");
+    option.value = category;
+    option.innerText = category;
+    select.appendChild(option);
+  });
+
+  select.value = selectedCategory;
+}
+
 function openSentenceEditor(item) {
   editingSentenceId = item.id;
 
@@ -295,6 +322,7 @@ document.getElementById("saveSentenceEditBtn").onclick = async () => {
     }
 
     closeSentenceEditor();
+    await refreshSentenceCategoryOptions();
     await refreshSentenceList();
   } catch (err) {
     console.error(err);
@@ -308,7 +336,7 @@ document.getElementById("cancelSentenceEditBtn").onclick = () => {
 
 document.getElementById("sentenceSearchBtn").onclick = async () => {
   sentenceState.q = document.getElementById("sentenceSearchInput").value.trim();
-  sentenceState.category = document.getElementById("sentenceCategoryFilter").value.trim();
+  sentenceState.category = document.getElementById("sentenceCategoryFilter").value;
   sentenceCurrentPage = 1;
 
   try {
@@ -317,6 +345,10 @@ document.getElementById("sentenceSearchBtn").onclick = async () => {
     console.error(err);
     alert(`搜尋 sentence 失敗：\n${err.message || err}`);
   }
+};
+
+document.getElementById("sentenceCategoryFilter").onchange = () => {
+  document.getElementById("sentenceSearchBtn").click();
 };
 
 document.getElementById("sentenceClearBtn").onclick = async () => {
@@ -346,4 +378,9 @@ document.getElementById("sentencePageSize").onchange = (event) => {
 refreshSentenceList().catch((err) => {
   console.error(err);
   alert(`初始化 Sentence Book 失敗：\n${err.message || err}`);
+});
+
+refreshSentenceCategoryOptions().catch((err) => {
+  console.error(err);
+  alert(`初始化分類選單失敗：\n${err.message || err}`);
 });
