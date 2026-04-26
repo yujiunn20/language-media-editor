@@ -5,6 +5,7 @@ const sentenceState = {
   category: ""
 };
 
+const isEditMode = new URLSearchParams(window.location.search).get("mode") === "edit";
 let currentSentenceTimeHandler = null;
 let editingSentenceId = null;
 let sentenceCurrentPage = 1;
@@ -76,6 +77,8 @@ async function refreshSentenceCategoryOptions() {
 }
 
 function openSentenceEditor(item) {
+  if (!isEditMode) return;
+
   editingSentenceId = item.id;
 
   document.getElementById("sentenceEditorPanel").style.display = "block";
@@ -210,41 +213,46 @@ function renderSentenceList() {
       }
     };
 
-    const editBtn = document.createElement("button");
-    editBtn.innerText = "Edit";
-    editBtn.onclick = () => {
-      openSentenceEditor(item);
-    };
+    actions.appendChild(playBtn);
 
-    const deleteBtn = document.createElement("button");
-    deleteBtn.innerText = "Delete";
-    deleteBtn.onclick = async () => {
-      const ok = confirm(`確定要刪除這筆 sentence 嗎？\n${item.jp || ""}`);
-      if (!ok) return;
+    if (isEditMode) {
+      const editBtn = document.createElement("button");
+      editBtn.innerText = "Edit";
+      editBtn.onclick = () => {
+        openSentenceEditor(item);
+      };
 
-      try {
-        const res = await fetch(`/api/sentences/${item.id}`, {
-          method: "DELETE"
-        });
+      const deleteBtn = document.createElement("button");
+      deleteBtn.innerText = "Delete";
+      deleteBtn.onclick = async () => {
+        const ok = confirm(`確定要刪除這筆 sentence 嗎？\n${item.jp || ""}`);
+        if (!ok) return;
 
-        const data = await res.json();
+        try {
+          const res = await fetch(`/api/sentences/${item.id}`, {
+            method: "DELETE"
+          });
 
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Delete sentence failed");
+          const data = await res.json();
+
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || "Delete sentence failed");
+          }
+
+          if (editingSentenceId === item.id) {
+            closeSentenceEditor();
+          }
+
+          await refreshSentenceList();
+        } catch (err) {
+          console.error(err);
+          alert(`刪除 sentence 失敗：\n${err.message || err}`);
         }
+      };
 
-        if (editingSentenceId === item.id) {
-          closeSentenceEditor();
-        }
+      actions.append(editBtn, deleteBtn);
+    }
 
-        await refreshSentenceList();
-      } catch (err) {
-        console.error(err);
-        alert(`刪除 sentence 失敗：\n${err.message || err}`);
-      }
-    };
-
-    actions.append(playBtn, editBtn, deleteBtn);
     li.append(meta, jpDiv, zhDiv, noteDiv, actions);
     list.appendChild(li);
   });
@@ -499,6 +507,8 @@ async function downloadSentenceExportZip() {
 }
 
 document.getElementById("saveSentenceEditBtn").onclick = async () => {
+  if (!isEditMode) return;
+
   const id = Number(document.getElementById("editSentenceId").value);
   const jp = document.getElementById("editSentenceJp").value.trim();
   const zh = document.getElementById("editSentenceZh").value.trim();
@@ -606,6 +616,18 @@ document.getElementById("sentenceExportSearchInput").addEventListener("keydown",
   }
 });
 document.getElementById("sentenceExportDownloadBtn").onclick = downloadSentenceExportZip;
+document.getElementById("sentenceEditModeBtn").onclick = () => {
+  window.location.href = isEditMode ? "sentence.html" : "sentence.html?mode=edit";
+};
+document.getElementById("backToViewerBtn").onclick = () => {
+  window.location.href = "index.html";
+};
+
+if (isEditMode) {
+  document.title = "Sentence Book Editor";
+  document.querySelector("h1").innerText = "Sentence Book Editor";
+  document.getElementById("sentenceEditModeBtn").innerText = "View Mode";
+}
 
 refreshSentenceList().catch((err) => {
   console.error(err);

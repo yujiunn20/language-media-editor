@@ -9,6 +9,39 @@ h1, h2, h3 {
   margin-top: 0;
 }
 
+.top-bar,
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.top-bar h1,
+.viewer-header h2 {
+  margin-bottom: 0;
+}
+
+.top-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sentence-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sentence-toolbar-actions button,
+.top-actions button {
+  margin: 0;
+}
+
 button {
   margin-right: 6px;
   margin-bottom: 6px;
@@ -40,6 +73,7 @@ hr {
 
 #mediaList li,
 #lessonList li,
+#sentenceList li,
 #clipList li {
   list-style: none;
   background: white;
@@ -105,7 +139,8 @@ hr {
 }
 
 #mediaList,
-#lessonList {
+#lessonList,
+#sentenceList {
   padding-left: 0;
   margin-top: 0;
 }
@@ -166,6 +201,25 @@ textarea {
   box-sizing: border-box;
   resize: vertical;
   font-family: inherit;
+}
+
+.transcribe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.transcribe-row label {
+  color: #444;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.transcribe-row select {
+  min-width: 190px;
+  padding: 6px 8px;
 }
 
 #jpText {

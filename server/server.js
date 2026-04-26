@@ -190,6 +190,13 @@ function cleanWhisperText(raw = "") {
     .trim();
 }
 
+function normalizeWhisperLanguage(value) {
+  const lang = String(value || "").trim().toLowerCase();
+  if (!lang || lang === "auto") return "";
+  if (!/^[a-z]{2,3}(?:-[a-z]{2,4})?$/.test(lang)) return "";
+  return lang;
+}
+
 function cutSentenceAudio({ mediaFilename, start, end, sentenceId }) {
   return new Promise((resolve, reject) => {
     const safeMediaFilename = path.basename(String(mediaFilename || "").trim());
@@ -1682,14 +1689,20 @@ app.post("/api/transcribe", (req, res) => {
         });
       }
 
+      const whisperLang = normalizeWhisperLanguage(lang);
+      const whisperArgs = [
+        "-f", tempWavPath,
+        "-m", WHISPER_MODEL_PATH,
+        "-otxt"
+      ];
+
+      if (whisperLang) {
+        whisperArgs.splice(2, 0, "-l", whisperLang);
+      }
+
       execFile(
         WHISPER_PATH,
-        [
-          "-f", tempWavPath,
-          "-l", lang || "ja",
-          "-m", WHISPER_MODEL_PATH,
-          "-otxt"
-        ],
+        whisperArgs,
         { cwd: path.dirname(WHISPER_PATH) },
         (whisperErr, stdout, stderr) => {
           try {

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Lesson Editor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="top-bar">
+    <h1>Lesson Editor</h1>
+    <div class="top-actions">
+      <a href="index.html">
+        <button type="button">Back to Viewer</button>
+      </a>
+      <a href="sentence.html">
+        <button type="button">Sentence Book</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="sidebar panel">
+      <h3>Media Library</h3>
+
+      <div class="library-toolbar">
+        <select id="mediaFolderSelect">
+          <option value="">(root)</option>
+        </select>
+
+        <div class="library-button-grid">
+          <button id="newMediaFolderBtn">New Folder</button>
+          <button id="renameMediaFolderBtn">Rename Folder</button>
+          <button id="moveMediaFolderBtn">Move Folder</button>
+          <button id="deleteMediaFolderBtn">Delete Folder</button>
+          <button id="importMediaBtn">Import Media</button>
+        </div>
+      </div>
+
+      <ul id="mediaList"></ul>
+
+      <h3>Lesson Library</h3>
+
+      <div class="library-toolbar">
+        <select id="lessonFolderSelect">
+          <option value="">(root)</option>
+        </select>
+
+        <div class="library-button-grid">
+          <button id="newLessonFolderBtn">New Folder</button>
+          <button id="renameLessonFolderBtn">Rename Folder</button>
+          <button id="moveLessonFolderBtn">Move Folder</button>
+          <button id="deleteLessonFolderBtn">Delete Folder</button>
+          <button id="importLessonBtn">Import Lesson</button>
+        </div>
+      </div>
+
+      <ul id="lessonList"></ul>
+    </div>
+
+    <div class="main panel">
+      <video id="player" controls width="700"></video>
+
+      <div style="margin-top:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button id="setStart">Set Start</button>
+
+        <span class="label" id="jumpStart" style="cursor:pointer; text-decoration:underline;">Start</span>
+        <input id="startTime" type="number" step="0.1" value="0" style="width:90px;" />
+
+        <button id="setEnd" style="margin-left:12px;">Set End</button>
+
+        <span class="label" id="jumpEnd" style="cursor:pointer; text-decoration:underline;">End</span>
+        <input id="endTime" type="number" step="0.1" value="0" style="width:90px;" />
+      </div>
+
+      <div style="margin-top:12px;">
+        <input id="lessonTitle" placeholder="Lesson title" />
+        <textarea id="jpText" placeholder="Japanese sentence"></textarea>
+        <textarea id="zhText" placeholder="Chinese translation"></textarea>
+        <input id="category" placeholder="Category" />
+        <div class="transcribe-row">
+          <label for="transcribeLanguage">Transcribe language</label>
+          <select id="transcribeLanguage">
+            <option value="auto">Auto detect</option>
+            <option value="ja" selected>Japanese</option>
+            <option value="en">English</option>
+            <option value="zh">Chinese</option>
+            <option value="ko">Korean</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ru">Russian</option>
+            <option value="vi">Vietnamese</option>
+            <option value="th">Thai</option>
+            <option value="id">Indonesian</option>
+            <option value="ms">Malay</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+          </select>
+        </div>
+        <div>
+          <button id="transcribeClipBtn">Auto Transcribe</button>
+          <button id="playEditorClipBtn">Play Current Clip</button>
+          <button id="addClip">Add Clip</button>
+          <button id="deleteClipBtn" style="display:none;">Delete Clip</button>
+          <button id="cancelEditBtn" style="display:none;">Cancel Edit</button>
+          <button id="saveLesson">Save Lesson</button>
+        </div>
+        <div id="editorModeLabel" style="margin-top:6px; color:#666;"></div>
+      </div>
+
+      <div class="clip-list-header">
+        <h3>Clip List</h3>
+        <label class="clip-page-size">
+          Per page
+          <select id="clipPageSize">
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+      </div>
+      <ul id="clipList"></ul>
+      <div id="clipPagination" class="clip-pagination"></div>
+    </div>
+  </div>
+
+  <div id="appMessage" class="app-message hidden"></div>
+
+  <div id="saveSentenceModal" class="modal hidden">
+    <div class="modal-content save-sentence-modal-content">
+      <h3>Save Sentence</h3>
+
+      <label class="field-label" for="saveSentenceJp">Japanese sentence</label>
+      <textarea id="saveSentenceJp"></textarea>
+
+      <label class="field-label" for="saveSentenceZh">Chinese translation</label>
+      <textarea id="saveSentenceZh"></textarea>
+
+      <label class="field-label" for="saveSentenceCategory">Category</label>
+      <input id="saveSentenceCategory" />
+
+      <label class="field-label" for="saveSentenceNote">Note</label>
+      <textarea id="saveSentenceNote"></textarea>
+
+      <div id="saveSentenceStatus" class="modal-status"></div>
+
+      <div class="modal-actions">
+        <button id="saveSentenceConfirmBtn">Save</button>
+        <button id="saveSentenceCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="moveModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Move to folder</h3>
+
+      <div id="moveFolderList" class="folder-list"></div>
+
+      <div class="modal-actions">
+        <button id="moveConfirmBtn">Confirm</button>
+        <button id="moveCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

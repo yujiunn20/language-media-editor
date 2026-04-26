@@ -231,6 +231,10 @@ function getCategoryInput() {
   return document.getElementById("category");
 }
 
+function getTranscribeLanguageSelect() {
+  return document.getElementById("transcribeLanguage");
+}
+
 function getAddClipBtn() {
   return document.getElementById("addClip");
 }
@@ -717,7 +721,7 @@ async function transcribeCurrentClip() {
         mediaFilename: lesson.media,
         start: startTime,
         end: endTime,
-        lang: "ja"
+        lang: getTranscribeLanguageSelect().value
       })
     });
 
@@ -736,7 +740,7 @@ async function transcribeCurrentClip() {
     }
   } catch (err) {
     console.error(err);
-    alert(`轉錄失敗：\n${err.message || err}`);
+    showAppMessage(`轉錄失敗：\n${err.message || err}`, "error");
     if (status) status.innerText = "Transcription failed.";
   } finally {
     btn.disabled = false;
@@ -1542,7 +1546,39 @@ function playClip(clip) {
 player.addEventListener("pause", stopCurrentClipPlayback);
 player.addEventListener("ended", stopCurrentClipPlayback);
 
-initLibrary().catch((err) => {
+async function loadInitialLessonFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const lessonId = Number(params.get("lessonId"));
+
+  if (!Number.isInteger(lessonId) || lessonId <= 0) {
+    return;
+  }
+
+  const res = await fetch(`/api/lessons/${lessonId}`);
+  const lessonData = await res.json();
+
+  if (!res.ok) {
+    throw new Error(lessonData.error || "Load lesson failed");
+  }
+
+  currentLessonFolderId = lessonData.folder_id ?? null;
+  document.getElementById("lessonFolderSelect").value =
+    currentLessonFolderId == null ? "" : String(currentLessonFolderId);
+  await refreshLessonList();
+
+  loadLessonToEditor(lessonData);
+
+  if (lessonData.media_filename) {
+    player.src = `/media/${encodeURIComponent(lessonData.media_filename)}`;
+  }
+}
+
+async function bootstrap() {
+  await initLibrary();
+  await loadInitialLessonFromQuery();
+}
+
+bootstrap().catch((err) => {
   console.error(err);
   alert(`初始化失敗：\n${err.message || err}`);
 });
