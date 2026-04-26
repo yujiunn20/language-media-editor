@@ -2,6 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const zlib = require("zlib");
 const db = require("./db");
 const multer = require("multer");
 const mime = require("mime-types");
@@ -250,22 +251,135 @@ function escapeJsonForHtml(data) {
     .replace(/&/g, "\\u0026");
 }
 
-function zipDirectory(sourceDir, outputPath) {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "zip",
-      ["-r", "-q", outputPath, "."],
-      { cwd: sourceDir },
-      (err) => {
-        if (err) {
-          reject(new Error(`zip failed: ${err.message}`));
-          return;
-        }
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
 
-        resolve();
+  for (let i = 0; i < table.length; i += 1) {
+    let value = i;
+
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+
+    table[i] = value >>> 0;
+  }
+
+  return table;
+})();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+
+  for (const byte of buffer) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function getDosDateTime(date = new Date()) {
+  const year = Math.max(date.getFullYear(), 1980);
+  const dosTime =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((year - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+
+  return { dosDate, dosTime };
+}
+
+function listFilesForZip(sourceDir, currentDir = sourceDir) {
+  return fs.readdirSync(currentDir, { withFileTypes: true })
+    .flatMap((entry) => {
+      const absolutePath = path.join(currentDir, entry.name);
+
+      if (entry.isDirectory()) {
+        return listFilesForZip(sourceDir, absolutePath);
       }
-    );
-  });
+
+      if (!entry.isFile()) {
+        return [];
+      }
+
+      return [{
+        absolutePath,
+        archivePath: path.relative(sourceDir, absolutePath).split(path.sep).join("/")
+      }];
+    })
+    .sort((a, b) => a.archivePath.localeCompare(b.archivePath));
+}
+
+function zipDirectory(sourceDir, outputPath) {
+  const files = listFilesForZip(sourceDir);
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const stat = fs.statSync(file.absolutePath);
+    const sourceBuffer = fs.readFileSync(file.absolutePath);
+    const compressedBuffer = zlib.deflateRawSync(sourceBuffer);
+    const nameBuffer = Buffer.from(file.archivePath, "utf8");
+    const checksum = crc32(sourceBuffer);
+    const { dosDate, dosTime } = getDosDateTime(stat.mtime);
+
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0800, 6);
+    localHeader.writeUInt16LE(8, 8);
+    localHeader.writeUInt16LE(dosTime, 10);
+    localHeader.writeUInt16LE(dosDate, 12);
+    localHeader.writeUInt32LE(checksum, 14);
+    localHeader.writeUInt32LE(compressedBuffer.length, 18);
+    localHeader.writeUInt32LE(sourceBuffer.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    localParts.push(localHeader, nameBuffer, compressedBuffer);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0x0800, 8);
+    centralHeader.writeUInt16LE(8, 10);
+    centralHeader.writeUInt16LE(dosTime, 12);
+    centralHeader.writeUInt16LE(dosDate, 14);
+    centralHeader.writeUInt32LE(checksum, 16);
+    centralHeader.writeUInt32LE(compressedBuffer.length, 20);
+    centralHeader.writeUInt32LE(sourceBuffer.length, 24);
+    centralHeader.writeUInt16LE(nameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+
+    centralParts.push(centralHeader, nameBuffer);
+    offset += localHeader.length + nameBuffer.length + compressedBuffer.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const endHeader = Buffer.alloc(22);
+  endHeader.writeUInt32LE(0x06054b50, 0);
+  endHeader.writeUInt16LE(0, 4);
+  endHeader.writeUInt16LE(0, 6);
+  endHeader.writeUInt16LE(files.length, 8);
+  endHeader.writeUInt16LE(files.length, 10);
+  endHeader.writeUInt32LE(centralSize, 12);
+  endHeader.writeUInt32LE(offset, 16);
+  endHeader.writeUInt16LE(0, 20);
+
+  fs.writeFileSync(outputPath, Buffer.concat([
+    ...localParts,
+    ...centralParts,
+    endHeader
+  ]));
 }
 
 function buildLessonExportHtml(exportLesson) {
@@ -2226,5 +2340,6 @@ if (require.main === module) {
 
 module.exports = {
   app,
-  startServer
+  startServer,
+  zipDirectory
 };
