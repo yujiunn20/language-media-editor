@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Third-party licenses</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="top-bar">
+    <h1>Third-party licenses</h1>
+    <div class="top-actions">
+      <a href="index.html">
+        <button type="button">Back to Viewer</button>
+      </a>
+    </div>
+  </div>
+
+  <div class="panel" style="max-width:960px; margin:0 auto 24px;">
+    <h2>User-provided content</h2>
+    <p>
+      Language Media Editor is a local editing tool. Users are responsible for
+      ensuring that any media, text, translation, subtitle, exported lesson, or
+      sentence audio they import, create, edit, or export is content they own,
+      are licensed to use, or are otherwise legally permitted to use.
+    </p>
+  </div>
+
+  <div class="panel" style="max-width:960px; margin:0 auto 24px;">
+    <h2>Bundled and used third-party components</h2>
+
+    <h3>FFmpeg</h3>
+    <p>
+      This application uses FFmpeg through the <code>ffmpeg-static</code> npm
+      package for media processing and audio clipping.
+    </p>
+    <ul>
+      <li>Package: <code>ffmpeg-static</code> 5.3.0</li>
+      <li>Bundled Windows binary: FFmpeg 6.1.1 essentials build from gyan.dev</li>
+      <li>License: GNU General Public License version 3 or later</li>
+      <li>FFmpeg source code for the bundled binary: <a href="https://github.com/FFmpeg/FFmpeg/commit/e38092ef93">https://github.com/FFmpeg/FFmpeg/commit/e38092ef93</a></li>
+      <li>FFmpeg project: <a href="https://ffmpeg.org/">https://ffmpeg.org/</a></li>
+      <li>GPL v3 text: <a href="https://www.gnu.org/licenses/gpl-3.0.html">https://www.gnu.org/licenses/gpl-3.0.html</a></li>
+    </ul>
+
+    <h3>whisper.cpp</h3>
+    <p>
+      This application builds and bundles <code>whisper.cpp</code> for local
+      speech transcription.
+    </p>
+    <ul>
+      <li>Project: <a href="https://github.com/ggml-org/whisper.cpp">https://github.com/ggml-org/whisper.cpp</a></li>
+      <li>License: MIT License</li>
+      <li>Copyright: The ggml authors</li>
+    </ul>
+
+    <h3>OpenAI Whisper model</h3>
+    <p>
+      This application downloads and bundles the Whisper <code>ggml-base.bin</code>
+      model for local transcription.
+    </p>
+    <ul>
+      <li>Project: <a href="https://github.com/openai/whisper">https://github.com/openai/whisper</a></li>
+      <li>License: MIT License for code and model weights</li>
+      <li>Copyright: OpenAI</li>
+    </ul>
+
+    <h3>Electron</h3>
+    <ul>
+      <li>Package: <code>electron</code> 41.3.0</li>
+      <li>License: MIT License</li>
+      <li>Project: <a href="https://www.electronjs.org/">https://www.electronjs.org/</a></li>
+    </ul>
+
+    <h3>Express</h3>
+    <ul>
+      <li>Package: <code>express</code> 5.2.1</li>
+      <li>License: MIT License</li>
+      <li>Project: <a href="https://expressjs.com/">https://expressjs.com/</a></li>
+    </ul>
+
+    <h3>better-sqlite3</h3>
+    <ul>
+      <li>Package: <code>better-sqlite3</code> 12.8.0</li>
+      <li>License: MIT License</li>
+      <li>Project: <a href="https://github.com/WiseLibs/better-sqlite3">https://github.com/WiseLibs/better-sqlite3</a></li>
+    </ul>
+
+    <h3>multer</h3>
+    <ul>
+      <li>Package: <code>multer</code> 2.1.1</li>
+      <li>License: MIT License</li>
+      <li>Project: <a href="https://github.com/expressjs/multer">https://github.com/expressjs/multer</a></li>
+    </ul>
+
+    <h3>mime-types</h3>
+    <ul>
+      <li>Package: <code>mime-types</code> 3.0.2</li>
+      <li>License: MIT License</li>
+      <li>Project: <a href="https://github.com/jshttp/mime-types">https://github.com/jshttp/mime-types</a></li>
+    </ul>
+
+    <h2>Additional npm dependencies</h2>
+    <p>
+      This application also includes transitive npm dependencies installed by
+      the packages above. Their license files are distributed with the installed
+      npm packages in the application bundle where applicable.
+    </p>
+  </div>
+</body>
+</html>
