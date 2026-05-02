@@ -2,27 +2,40 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Sentence Book</title>
+  <title data-i18n="app.sentenceTitle">Sentence Book</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>Sentence Book</h1>
+  <div class="top-bar">
+    <h1 data-i18n="app.sentenceTitle">Sentence Book</h1>
+    <div class="top-actions">
+      <label>
+        <span data-i18n="common.language">UI language</span>
+        <select data-language-select>
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+          <option value="ja">日本語</option>
+        </select>
+      </label>
+    </div>
+  </div>
 
   <div class="panel" style="margin-bottom:16px;">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <input id="sentenceSearchInput" placeholder="Search sentence / translation / category" style="min-width:280px;" />
+        <input id="sentenceSearchInput" placeholder="Search sentence / translation / category" style="min-width:280px;" data-i18n-placeholder="sentence.searchPlaceholder" />
         <select id="sentenceCategoryFilter" style="min-width:220px;">
-          <option value="">All categories</option>
+          <option value="" data-i18n="sentence.allCategories">All categories</option>
         </select>
-        <button id="sentenceSearchBtn">Search</button>
-        <button id="sentenceClearBtn">Clear</button>
+        <button id="sentenceSearchBtn" data-i18n="common.search">Search</button>
+        <button id="sentenceClearBtn" data-i18n="common.clear">Clear</button>
       </div>
 
       <div class="sentence-toolbar-actions">
-        <button id="openSentenceExportBtn" type="button">Export</button>
-        <button id="sentenceEditModeBtn" type="button">Edit Mode</button>
-        <button id="backToViewerBtn" type="button">Back to Viewer</button>
+        <button id="openSentenceExportBtn" type="button" data-i18n="sentence.export">Export</button>
+        <button id="importSentenceExportBtn" type="button" data-i18n="sentence.import">Import</button>
+        <button id="sentenceEditModeBtn" type="button" data-i18n="sentence.editMode">Edit Mode</button>
+        <button id="backToViewerBtn" type="button" data-i18n="nav.backToViewer">Back to Viewer</button>
       </div>
     </div>
   </div>
@@ -31,40 +44,40 @@
     <audio id="sentencePlayer" controls style="width:100%; margin-bottom:16px;"></audio>
 
     <div id="sentenceEditorPanel" style="display:none; border:1px solid #ddd; padding:12px; border-radius:8px; margin-bottom:16px;">
-      <h3 style="margin-top:0;">Edit Sentence</h3>
+      <h3 style="margin-top:0;" data-i18n="sentence.editSentence">Edit Sentence</h3>
 
       <input type="hidden" id="editSentenceId" />
 
       <div style="margin-bottom:10px;">
-        <label for="editSentenceJp">Japanese</label><br>
+        <label for="editSentenceJp" data-i18n="common.sourceSentence">Source sentence</label><br>
         <textarea id="editSentenceJp" rows="3" style="width:100%;"></textarea>
       </div>
 
       <div style="margin-bottom:10px;">
-        <label for="editSentenceZh">Chinese</label><br>
+        <label for="editSentenceZh" data-i18n="common.translation">Translation</label><br>
         <textarea id="editSentenceZh" rows="3" style="width:100%;"></textarea>
       </div>
 
       <div style="margin-bottom:10px;">
-        <label for="editSentenceCategory">Category</label><br>
+        <label for="editSentenceCategory" data-i18n="common.category">Category</label><br>
         <input id="editSentenceCategory" style="width:100%;" />
       </div>
 
       <div style="margin-bottom:10px;">
-        <label for="editSentenceNote">Note</label><br>
+        <label for="editSentenceNote" data-i18n="common.note">Note</label><br>
         <textarea id="editSentenceNote" rows="2" style="width:100%;"></textarea>
       </div>
 
       <div style="display:flex; gap:8px;">
-        <button id="saveSentenceEditBtn" type="button">Save Changes</button>
-        <button id="cancelSentenceEditBtn" type="button">Cancel</button>
+        <button id="saveSentenceEditBtn" type="button" data-i18n="sentence.saveChanges">Save Changes</button>
+        <button id="cancelSentenceEditBtn" type="button" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
 
     <div class="sentence-list-header">
-      <h3>Sentence List</h3>
+      <h3 data-i18n="sentence.list">Sentence List</h3>
       <label class="clip-page-size">
-        Per page
+        <span data-i18n="common.perPage">Per page</span>
         <select id="sentencePageSize">
           <option value="10">10</option>
           <option value="20">20</option>
@@ -78,25 +91,25 @@
 
   <div id="sentenceExportModal" class="modal hidden">
     <div class="modal-content export-modal-content">
-      <h3>Export Sentences</h3>
+      <h3 data-i18n="sentence.exportTitle">Export Sentences</h3>
 
-      <input id="sentenceExportTitle" placeholder="Export title" style="width:100%; margin-bottom:12px;" />
+      <input id="sentenceExportTitle" placeholder="Export title" style="width:100%; margin-bottom:12px;" data-i18n-placeholder="sentence.exportTitlePlaceholder" />
 
       <div class="export-picker">
         <div class="export-column">
           <div class="export-search-row">
-            <input id="sentenceExportSearchInput" placeholder="Search sentences" />
+            <input id="sentenceExportSearchInput" placeholder="Search sentences" data-i18n-placeholder="sentence.searchSentences" />
             <select id="sentenceExportCategoryFilter">
-              <option value="">All categories</option>
+              <option value="" data-i18n="sentence.allCategories">All categories</option>
             </select>
-            <button id="sentenceExportSearchBtn" type="button">Search</button>
+            <button id="sentenceExportSearchBtn" type="button" data-i18n="common.search">Search</button>
           </div>
           <div id="sentenceExportAvailableList" class="export-list"></div>
         </div>
 
         <div class="export-column">
           <div class="export-selected-header">
-            <strong>Selected</strong>
+            <strong data-i18n="sentence.selected">Selected</strong>
             <span id="sentenceExportSelectedCount">0</span>
           </div>
           <div id="sentenceExportSelectedList" class="export-list"></div>
@@ -104,12 +117,13 @@
       </div>
 
       <div class="modal-actions">
-        <button id="sentenceExportDownloadBtn" type="button">Export ZIP</button>
-        <button id="sentenceExportCancelBtn" type="button">Cancel</button>
+        <button id="sentenceExportDownloadBtn" type="button" data-i18n="sentence.exportZip">Export ZIP</button>
+        <button id="sentenceExportCancelBtn" type="button" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="sentence.js"></script>
 </body>
 </html>

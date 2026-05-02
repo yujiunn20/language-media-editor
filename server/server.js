@@ -53,6 +53,68 @@ function getUniqueFilename(dir, originalName) {
   return candidate;
 }
 
+function normalizeUniqueText(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+function findDuplicateSentence(items = []) {
+  const seen = new Set();
+
+  for (const item of items) {
+    const text = normalizeUniqueText(item?.jp);
+
+    if (!text) {
+      continue;
+    }
+
+    if (seen.has(text)) {
+      return String(item.jp || "").trim();
+    }
+
+    seen.add(text);
+  }
+
+  return null;
+}
+
+function findExistingSentenceByJp(jp, excludeId = null) {
+  const target = normalizeUniqueText(jp);
+
+  if (!target) {
+    return null;
+  }
+
+  const rows = db.prepare(`
+    SELECT id, jp
+    FROM sentence_items
+    WHERE id != COALESCE(?, 0)
+  `).all(excludeId);
+
+  return rows.find((row) => normalizeUniqueText(row.jp) === target) || null;
+}
+
+function findExistingMediaName(name, excludeFilename = null) {
+  const target = normalizeUniqueText(name);
+
+  if (!target) {
+    return null;
+  }
+
+  const rows = db.prepare(`
+    SELECT filename, display_name
+    FROM media_files
+    WHERE filename != COALESCE(?, '')
+  `).all(excludeFilename);
+
+  return rows.find((row) =>
+    normalizeUniqueText(row.filename) === target ||
+    normalizeUniqueText(row.display_name || row.filename) === target
+  ) || null;
+}
+
 function ensureDirExists(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -74,10 +136,15 @@ const allowedLessonExts = new Set([
 
 function mediaFileFilter(req, file, cb) {
   const decodedName = decodeOriginalName(file.originalname);
+  const safeName = sanitizeFilename(decodedName);
   const ext = path.extname(decodedName).toLowerCase();
 
   if (!allowedMediaExts.has(ext)) {
     return cb(new Error(`Unsupported media file type: ${ext || "(no extension)"}`));
+  }
+
+  if (fs.existsSync(path.join(MEDIA_DIR, safeName)) || findExistingMediaName(safeName)) {
+    return cb(new Error(`已存在同名 media：${safeName}`));
   }
 
   cb(null, true);
@@ -160,6 +227,23 @@ const mediaUpload = multer({
 const lessonUpload = multer({
   storage: lessonStorage,
   fileFilter: lessonFileFilter
+});
+
+const zipUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const decodedName = decodeOriginalName(file.originalname);
+    const ext = path.extname(decodedName).toLowerCase();
+
+    if (ext !== ".zip") {
+      return cb(new Error("Unsupported import file type: .zip required"));
+    }
+
+    cb(null, true);
+  },
+  limits: {
+    fileSize: 1024 * 1024 * 1024
+  }
 });
 
 /* ================================
@@ -387,6 +471,134 @@ function zipDirectory(sourceDir, outputPath) {
     ...centralParts,
     endHeader
   ]));
+}
+
+function readZipEntries(buffer) {
+  const minEndOffset = Math.max(0, buffer.length - 0xffff - 22);
+  let endOffset = -1;
+
+  for (let i = buffer.length - 22; i >= minEndOffset; i -= 1) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      endOffset = i;
+      break;
+    }
+  }
+
+  if (endOffset < 0) {
+    throw new Error("Invalid ZIP: end record not found");
+  }
+
+  const entryCount = buffer.readUInt16LE(endOffset + 10);
+  const centralOffset = buffer.readUInt32LE(endOffset + 16);
+  const entries = new Map();
+  let cursor = centralOffset;
+
+  for (let i = 0; i < entryCount; i += 1) {
+    if (buffer.readUInt32LE(cursor) !== 0x02014b50) {
+      throw new Error("Invalid ZIP: central directory is corrupt");
+    }
+
+    const flags = buffer.readUInt16LE(cursor + 8);
+    const method = buffer.readUInt16LE(cursor + 10);
+    const compressedSize = buffer.readUInt32LE(cursor + 20);
+    const uncompressedSize = buffer.readUInt32LE(cursor + 24);
+    const nameLength = buffer.readUInt16LE(cursor + 28);
+    const extraLength = buffer.readUInt16LE(cursor + 30);
+    const commentLength = buffer.readUInt16LE(cursor + 32);
+    const localOffset = buffer.readUInt32LE(cursor + 42);
+    const nameBuffer = buffer.subarray(cursor + 46, cursor + 46 + nameLength);
+    const name = nameBuffer.toString(flags & 0x0800 ? "utf8" : "utf8").replace(/\\/g, "/");
+
+    cursor += 46 + nameLength + extraLength + commentLength;
+
+    if (!name || name.endsWith("/")) {
+      continue;
+    }
+
+    if (name.includes("..") || path.posix.isAbsolute(name)) {
+      throw new Error(`Unsafe ZIP entry path: ${name}`);
+    }
+
+    if (buffer.readUInt32LE(localOffset) !== 0x04034b50) {
+      throw new Error(`Invalid ZIP: local header missing for ${name}`);
+    }
+
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressedData = buffer.subarray(dataStart, dataStart + compressedSize);
+
+    let data;
+    if (method === 0) {
+      data = Buffer.from(compressedData);
+    } else if (method === 8) {
+      data = zlib.inflateRawSync(compressedData);
+    } else {
+      throw new Error(`Unsupported ZIP compression method ${method} for ${name}`);
+    }
+
+    if (data.length !== uncompressedSize) {
+      throw new Error(`Invalid ZIP: size mismatch for ${name}`);
+    }
+
+    entries.set(name, data);
+  }
+
+  return entries;
+}
+
+function findZipEntry(entries, predicate) {
+  for (const [name, data] of entries.entries()) {
+    if (predicate(name)) {
+      return { name, data };
+    }
+  }
+
+  return null;
+}
+
+function getZipJsonManifest(entries, manifestName, scriptId) {
+  const manifest = findZipEntry(entries, (name) => path.posix.basename(name) === manifestName);
+
+  if (manifest) {
+    return {
+      baseDir: path.posix.dirname(manifest.name) === "." ? "" : path.posix.dirname(manifest.name),
+      data: JSON.parse(manifest.data.toString("utf8"))
+    };
+  }
+
+  const html = findZipEntry(entries, (name) => path.posix.basename(name) === "index.html");
+
+  if (!html) {
+    throw new Error(`${manifestName} not found in ZIP`);
+  }
+
+  const source = html.data.toString("utf8");
+  const pattern = new RegExp(`<script[^>]+id=["']${scriptId}["'][^>]*>([\\s\\S]*?)<\\/script>`, "i");
+  const match = source.match(pattern);
+
+  if (!match) {
+    throw new Error(`${manifestName} data not found in index.html`);
+  }
+
+  return {
+    baseDir: path.posix.dirname(html.name) === "." ? "" : path.posix.dirname(html.name),
+    data: JSON.parse(match[1])
+  };
+}
+
+function resolveZipRelativeEntry(entries, baseDir, relativePath) {
+  const decodedPath = decodeURIComponent(String(relativePath || ""));
+  const normalized = path.posix.normalize(decodedPath).replace(/^\/+/, "");
+
+  if (!normalized || normalized.startsWith("../") || normalized === "..") {
+    return null;
+  }
+
+  const fullPath = baseDir ? path.posix.join(baseDir, normalized) : normalized;
+  const data = entries.get(fullPath);
+
+  return data ? { name: fullPath, data } : null;
 }
 
 function buildLessonExportHtml(exportLesson) {
@@ -1107,6 +1319,15 @@ app.patch("/api/media/:filename", (req, res) => {
       });
     }
 
+    const duplicate = findExistingMediaName(display_name, filename);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: `已有同名 media：${display_name.trim()}`
+      });
+    }
+
     db.prepare(`
       UPDATE media_files
       SET display_name = ?
@@ -1379,6 +1600,16 @@ app.get("/api/lessons/:id/export", async (req, res) => {
       "utf8"
     );
 
+    fs.writeFileSync(
+      path.join(packageDir, "lesson-export.json"),
+      JSON.stringify({
+        type: "lesson",
+        version: 1,
+        lesson: exportLesson
+      }, null, 2),
+      "utf8"
+    );
+
     const zipPath = path.join(exportRoot, `${safeBaseName}.zip`);
     await zipDirectory(packageDir, zipPath);
 
@@ -1406,6 +1637,145 @@ app.get("/api/lessons/:id/export", async (req, res) => {
   }
 });
 
+app.post("/api/lessons/import-export", (req, res) => {
+  zipUpload.single("file")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        ok: false,
+        error: err.message
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No ZIP uploaded"
+      });
+    }
+
+    try {
+      const folder_id = req.body.folder_id ? normalizeNullableId(req.body.folder_id) : null;
+      const entries = readZipEntries(req.file.buffer);
+      const manifest = getZipJsonManifest(entries, "lesson-export.json", "lesson-data");
+      const lessonData = manifest.data.lesson || manifest.data;
+      const title = String(lessonData.title || "").trim();
+      const clips = Array.isArray(lessonData.clips) ? lessonData.clips : [];
+
+      if (!title) {
+        return res.status(400).json({
+          ok: false,
+          error: "Lesson export 缺少 title"
+        });
+      }
+
+      const existing = db.prepare(`
+        SELECT id FROM lessons WHERE title = ?
+      `).get(title);
+
+      if (existing) {
+        return res.status(409).json({
+          ok: false,
+          error: `已存在同名 lesson：${title}`
+        });
+      }
+
+      const duplicateSentence = findDuplicateSentence(clips);
+
+      if (duplicateSentence) {
+        return res.status(400).json({
+          ok: false,
+          error: `Lesson 內已有重複 sentence：${duplicateSentence}`
+        });
+      }
+
+      let mediaFilename = null;
+      let mediaEntry = null;
+
+      if (lessonData.media_path) {
+        mediaEntry = resolveZipRelativeEntry(entries, manifest.baseDir, lessonData.media_path);
+
+        if (!mediaEntry) {
+          return res.status(400).json({
+            ok: false,
+            error: `Lesson ZIP 缺少 media：${lessonData.media_path}`
+          });
+        }
+
+        mediaFilename = sanitizeFilename(path.posix.basename(decodeURIComponent(lessonData.media_path)));
+
+        if (fs.existsSync(path.join(MEDIA_DIR, mediaFilename)) || findExistingMediaName(mediaFilename)) {
+          return res.status(409).json({
+            ok: false,
+            error: `已存在同名 media：${mediaFilename}`
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      const importLesson = db.transaction(() => {
+        if (mediaFilename && mediaEntry) {
+          fs.writeFileSync(path.join(MEDIA_DIR, mediaFilename), mediaEntry.data);
+
+          db.prepare(`
+            INSERT INTO media_files (filename, display_name, folder_id, created_at)
+            VALUES (?, ?, ?, ?)
+          `).run(mediaFilename, mediaFilename, null, now);
+        }
+
+        const result = db.prepare(`
+          INSERT INTO lessons (title, media_filename, folder_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(title, mediaFilename, folder_id, now, now);
+
+        const lessonId = result.lastInsertRowid;
+        const insertClip = db.prepare(`
+          INSERT INTO clips
+          (lesson_id, start, end, jp, zh, category, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        clips
+          .map((clip) => ({
+            start: Number(clip.start) || 0,
+            end: Number(clip.end) || 0,
+            jp: String(clip.jp || "").trim(),
+            zh: String(clip.zh || "").trim(),
+            category: String(clip.category || "").trim()
+          }))
+          .sort((a, b) => Number(a.start) - Number(b.start))
+          .forEach((clip, index) => {
+            insertClip.run(
+              lessonId,
+              clip.start,
+              clip.end,
+              clip.jp,
+              clip.zh,
+              clip.category,
+              index
+            );
+          });
+
+        return lessonId;
+      });
+
+      const lessonId = importLesson();
+
+      return res.json({
+        ok: true,
+        id: lessonId,
+        title,
+        imported_clips: clips.length,
+        media_filename: mediaFilename
+      });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: `匯入 lesson export 失敗：${error.message}`
+      });
+    }
+  });
+});
+
 app.delete("/api/lessons/:id", (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1428,8 +1798,18 @@ app.delete("/api/lessons/:id", (req, res) => {
       });
     }
 
-    db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
-    db.prepare(`DELETE FROM lessons WHERE id = ?`).run(id);
+    const deleteLesson = db.transaction(() => {
+      db.prepare(`
+        UPDATE sentence_items
+        SET lesson_id = NULL, clip_index = NULL, updated_at = ?
+        WHERE lesson_id = ?
+      `).run(new Date().toISOString(), id);
+
+      db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
+      db.prepare(`DELETE FROM lessons WHERE id = ?`).run(id);
+    });
+
+    deleteLesson();
 
     return res.json({
       ok: true,
@@ -1511,51 +1891,89 @@ app.post("/api/lessons", (req, res) => {
 
   let lessonId = id;
 
-  if (id) {
-    // ===== update =====
-    db.prepare(`
-      UPDATE lessons
-      SET title = ?, media_filename = ?, folder_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(title, media, folder_id ?? null, now, id);
+  try {
+    const trimmedTitle = String(title || "").trim();
+    const lessonClips = Array.isArray(clips) ? clips : [];
 
-    // 刪舊 clips
-    db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
+    if (!trimmedTitle) {
+      return res.status(400).json({
+        ok: false,
+        error: "title required"
+      });
+    }
 
-  } else {
-    // ===== create =====
-    const result = db.prepare(`
-      INSERT INTO lessons (title, media_filename, folder_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(title, media, folder_id ?? null, now, now);
+    const duplicateTitle = db.prepare(`
+      SELECT id FROM lessons
+      WHERE title = ? AND id != COALESCE(?, 0)
+    `).get(trimmedTitle, id || null);
 
-    lessonId = result.lastInsertRowid;
-  }
+    if (duplicateTitle) {
+      return res.status(400).json({
+        ok: false,
+        error: `已有同名 lesson：${trimmedTitle}`
+      });
+    }
 
-  // ===== 插入 clips =====
-  const insertClip = db.prepare(`
-    INSERT INTO clips
-    (lesson_id, start, end, jp, zh, category, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
+    const duplicateSentence = findDuplicateSentence(lessonClips);
 
-  const sortedClips = [...clips].sort(
-    (a, b) => Number(a.start) - Number(b.start)
-  );
+    if (duplicateSentence) {
+      return res.status(400).json({
+        ok: false,
+        error: `Lesson 內已有重複 sentence：${duplicateSentence}`
+      });
+    }
 
-  sortedClips.forEach((c, i) => {
-    insertClip.run(
-      lessonId,
-      c.start,
-      c.end,
-      c.jp,
-      c.zh,
-      c.category,
-      i
+    if (id) {
+      // ===== update =====
+      db.prepare(`
+        UPDATE lessons
+        SET title = ?, media_filename = ?, folder_id = ?, updated_at = ?
+        WHERE id = ?
+      `).run(trimmedTitle, media, folder_id ?? null, now, id);
+
+      // 刪舊 clips
+      db.prepare(`DELETE FROM clips WHERE lesson_id = ?`).run(id);
+
+    } else {
+      // ===== create =====
+      const result = db.prepare(`
+        INSERT INTO lessons (title, media_filename, folder_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(trimmedTitle, media, folder_id ?? null, now, now);
+
+      lessonId = result.lastInsertRowid;
+    }
+
+    // ===== 插入 clips =====
+    const insertClip = db.prepare(`
+      INSERT INTO clips
+      (lesson_id, start, end, jp, zh, category, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const sortedClips = [...lessonClips].sort(
+      (a, b) => Number(a.start) - Number(b.start)
     );
-  });
 
-  res.json({ success: true, id: lessonId });
+    sortedClips.forEach((c, i) => {
+      insertClip.run(
+        lessonId,
+        c.start,
+        c.end,
+        c.jp,
+        c.zh,
+        c.category,
+        i
+      );
+    });
+
+    res.json({ success: true, id: lessonId });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
 });
 
 app.patch("/api/lessons/:id/move", (req, res) => {
@@ -1893,6 +2311,15 @@ app.post("/api/sentences", async (req, res) => {
       });
     }
 
+    const duplicate = findExistingSentenceByJp(trimmedJp);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: `Sentence Book 已有重複 sentence：${trimmedJp}`
+      });
+    }
+
     const now = new Date().toISOString();
 
     const result = db.prepare(`
@@ -2050,6 +2477,17 @@ app.post("/api/sentences/export", async (req, res) => {
       "utf8"
     );
 
+    fs.writeFileSync(
+      path.join(packageDir, "sentence-export.json"),
+      JSON.stringify({
+        type: "sentence-book",
+        version: 1,
+        title,
+        sentences: exportSentences
+      }, null, 2),
+      "utf8"
+    );
+
     const zipPath = path.join(exportRoot, `${safeBaseName}.zip`);
     await zipDirectory(packageDir, zipPath);
 
@@ -2075,6 +2513,181 @@ app.post("/api/sentences/export", async (req, res) => {
       });
     }
   }
+});
+
+app.post("/api/sentences/import-export", (req, res) => {
+  zipUpload.single("file")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        ok: false,
+        error: err.message
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        ok: false,
+        error: "No ZIP uploaded"
+      });
+    }
+
+    try {
+      const duplicateMode = String(req.body.duplicate_mode || "skip").trim();
+
+      if (duplicateMode !== "skip" && duplicateMode !== "replace") {
+        return res.status(400).json({
+          ok: false,
+          error: "duplicate_mode must be skip or replace"
+        });
+      }
+
+      const entries = readZipEntries(req.file.buffer);
+      const manifest = getZipJsonManifest(entries, "sentence-export.json", "export-data");
+      const sentences = Array.isArray(manifest.data.sentences) ? manifest.data.sentences : [];
+
+      if (sentences.length === 0) {
+        return res.status(400).json({
+          ok: false,
+          error: "Sentence export 沒有 sentences"
+        });
+      }
+
+      const seenInZip = new Set();
+      const candidates = [];
+      let duplicateInZipCount = 0;
+
+      for (const item of sentences) {
+        const jp = String(item.jp || "").trim();
+        const key = normalizeUniqueText(jp);
+
+        if (!jp) {
+          continue;
+        }
+
+        if (seenInZip.has(key)) {
+          duplicateInZipCount += 1;
+          continue;
+        }
+
+        seenInZip.add(key);
+        candidates.push({
+          start: Number.isFinite(Number(item.start)) ? Number(item.start) : null,
+          end: Number.isFinite(Number(item.end)) ? Number(item.end) : null,
+          jp,
+          zh: String(item.zh || "").trim(),
+          category: String(item.category || "").trim(),
+          note: String(item.note || "").trim(),
+          audio_path: String(item.audio_path || "").trim()
+        });
+      }
+
+      const now = new Date().toISOString();
+      let importedCount = 0;
+      let skippedCount = duplicateInZipCount;
+      let replacedCount = 0;
+
+      const importSentences = db.transaction(() => {
+        const insertSentence = db.prepare(`
+          INSERT INTO sentence_items (
+            lesson_id,
+            clip_index,
+            media_filename,
+            audio_filename,
+            start,
+            end,
+            jp,
+            zh,
+            category,
+            note,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const allExisting = db.prepare(`
+          SELECT id, jp, audio_filename
+          FROM sentence_items
+        `).all();
+
+        for (const [index, item] of candidates.entries()) {
+          const key = normalizeUniqueText(item.jp);
+          const matchingRows = allExisting.filter((row) => normalizeUniqueText(row.jp) === key);
+
+          if (matchingRows.length > 0 && duplicateMode === "skip") {
+            skippedCount += 1;
+            continue;
+          }
+
+          if (matchingRows.length > 0 && duplicateMode === "replace") {
+            for (const row of matchingRows) {
+              if (row.audio_filename) {
+                const audioPath = path.join(SENTENCE_AUDIO_DIR, path.basename(row.audio_filename));
+                if (fs.existsSync(audioPath)) {
+                  fs.unlinkSync(audioPath);
+                }
+              }
+
+              db.prepare(`
+                DELETE FROM sentence_items WHERE id = ?
+              `).run(row.id);
+              replacedCount += 1;
+            }
+          }
+
+          let audioFilename = null;
+
+          if (item.audio_path) {
+            const audioEntry = resolveZipRelativeEntry(entries, manifest.baseDir, item.audio_path);
+
+            if (!audioEntry) {
+              throw new Error(`Sentence ZIP 缺少 audio：${item.audio_path}`);
+            }
+
+            const ext = path.extname(path.posix.basename(decodeURIComponent(item.audio_path))) || ".mp3";
+            audioFilename = getUniqueFilename(
+              SENTENCE_AUDIO_DIR,
+              `imported_sentence_${Date.now()}_${index}${ext}`
+            );
+
+            fs.writeFileSync(path.join(SENTENCE_AUDIO_DIR, audioFilename), audioEntry.data);
+          }
+
+          insertSentence.run(
+            null,
+            null,
+            "",
+            audioFilename,
+            item.start,
+            item.end,
+            item.jp,
+            item.zh,
+            item.category,
+            item.note,
+            now,
+            now
+          );
+
+          importedCount += 1;
+        }
+      });
+
+      importSentences();
+
+      return res.json({
+        ok: true,
+        imported: importedCount,
+        skipped: skippedCount,
+        replaced: replacedCount,
+        duplicate_mode: duplicateMode
+      });
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: `匯入 sentence export 失敗：${error.message}`
+      });
+    }
+  });
 });
 
 app.put("/api/sentences/:id", (req, res) => {
@@ -2110,6 +2723,15 @@ app.put("/api/sentences/:id", (req, res) => {
       return res.status(400).json({
         ok: false,
         error: "jp required"
+      });
+    }
+
+    const duplicate = findExistingSentenceByJp(trimmedJp, id);
+
+    if (duplicate) {
+      return res.status(400).json({
+        ok: false,
+        error: `Sentence Book 已有重複 sentence：${trimmedJp}`
       });
     }
 
@@ -2286,6 +2908,16 @@ app.post("/api/upload-lesson", (req, res) => {
         return res.status(409).json({
           ok: false,
           error: `已存在同名 lesson：${title}`
+        });
+      }
+
+      const duplicateSentence = findDuplicateSentence(clips);
+
+      if (duplicateSentence) {
+        fs.unlinkSync(uploadedPath);
+        return res.status(400).json({
+          ok: false,
+          error: `Lesson JSON 內有重複 sentence：${duplicateSentence}`
         });
       }
 

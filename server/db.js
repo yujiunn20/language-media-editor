@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS sentence_items (
   note TEXT,
   created_at TEXT,
   updated_at TEXT,
-  FOREIGN KEY (lesson_id) REFERENCES lessons(id)
+  FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE SET NULL
 );
 
 `);
@@ -84,6 +84,79 @@ if (sentenceCols.length > 0 && !sentenceCols.some(col => col.name === "note")) {
 
 if (sentenceCols.length > 0 && !sentenceCols.some(col => col.name === "audio_filename")) {
   db.exec("ALTER TABLE sentence_items ADD COLUMN audio_filename TEXT");
+}
+
+const sentenceForeignKeys = db.prepare("PRAGMA foreign_key_list(sentence_items)").all();
+const sentenceLessonForeignKey = sentenceForeignKeys.find(
+  (fk) => fk.from === "lesson_id" && fk.table === "lessons"
+);
+
+if (
+  sentenceCols.length > 0 &&
+  sentenceLessonForeignKey &&
+  sentenceLessonForeignKey.on_delete !== "SET NULL"
+) {
+  db.pragma("foreign_keys = OFF");
+
+  try {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE sentence_items RENAME TO sentence_items_old;
+
+        CREATE TABLE sentence_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          lesson_id INTEGER,
+          clip_index INTEGER,
+          media_filename TEXT,
+          audio_filename TEXT,
+          start REAL,
+          end REAL,
+          jp TEXT NOT NULL,
+          zh TEXT,
+          category TEXT,
+          note TEXT,
+          created_at TEXT,
+          updated_at TEXT,
+          FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE SET NULL
+        );
+
+        INSERT INTO sentence_items (
+          id,
+          lesson_id,
+          clip_index,
+          media_filename,
+          audio_filename,
+          start,
+          end,
+          jp,
+          zh,
+          category,
+          note,
+          created_at,
+          updated_at
+        )
+        SELECT
+          id,
+          lesson_id,
+          clip_index,
+          media_filename,
+          audio_filename,
+          start,
+          end,
+          jp,
+          zh,
+          category,
+          note,
+          created_at,
+          updated_at
+        FROM sentence_items_old;
+
+        DROP TABLE sentence_items_old;
+      `);
+    })();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
 }
 
 module.exports = db;

@@ -2,29 +2,37 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Language Media Viewer</title>
+  <title data-i18n="app.viewerTitle">Language Media Viewer</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="top-bar">
-    <h1>Language Media Viewer</h1>
-    <div class="top-actions">
-      <a href="sentence.html">
-        <button type="button">Sentence Book</button>
-      </a>
-      <a href="editor.html">
-        <button type="button">Open Editor</button>
-      </a>
-    </div>
+      <h1 data-i18n="app.viewerTitle">Language Media Viewer</h1>
+      <div class="top-actions">
+        <label>
+          <span data-i18n="common.language">UI language</span>
+          <select data-language-select>
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+            <option value="ja">日本語</option>
+          </select>
+        </label>
+        <a href="sentence.html">
+          <button type="button" data-i18n="nav.sentenceBook">Sentence Book</button>
+        </a>
+        <a href="editor.html">
+          <button type="button" data-i18n="nav.openEditor">Open Editor</button>
+        </a>
+      </div>
   </div>
 
   <div class="row">
     <div class="sidebar panel">
-      <h3>Lessons</h3>
+      <h3 data-i18n="library.lessons">Lessons</h3>
 
       <div class="library-toolbar">
         <select id="lessonFolderSelect">
-          <option value="">(root)</option>
+          <option value="" data-i18n="common.root">(root)</option>
         </select>
       </div>
 
@@ -34,20 +42,20 @@
     <div class="main panel">
       <div class="viewer-header">
         <div>
-          <h2 id="lessonTitle">Select a lesson</h2>
+          <h2 id="lessonTitle" data-i18n="lesson.select">Select a lesson</h2>
           <div id="lessonMeta" class="clip-meta"></div>
         </div>
         <a id="editCurrentLessonLink" class="hidden" href="editor.html">
-          <button type="button">Edit This Lesson</button>
+          <button type="button" data-i18n="lesson.editThis">Edit This Lesson</button>
         </a>
       </div>
 
       <video id="player" controls width="700"></video>
 
       <div class="clip-list-header">
-        <h3>Clip List</h3>
+        <h3 data-i18n="lesson.clipList">Clip List</h3>
         <label class="clip-page-size">
-          Per page
+          <span data-i18n="common.perPage">Per page</span>
           <select id="clipPageSize">
             <option value="10">10</option>
             <option value="20">20</option>
@@ -62,6 +70,7 @@
 
   <div id="appMessage" class="app-message hidden"></div>
 
+  <script src="i18n.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>

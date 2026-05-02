@@ -66,7 +66,7 @@ function renderFolderSelect(selectEl, folders, selectedId) {
 
   const rootOption = document.createElement("option");
   rootOption.value = "";
-  rootOption.innerText = "(root)";
+  rootOption.innerText = t("common.root");
   selectEl.appendChild(rootOption);
 
   buildFolderTree(folders).forEach((folder) => {
@@ -87,7 +87,7 @@ async function fetchFolders(kind) {
   const data = await res.json();
 
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Load folders failed");
+    throw new Error(data.error || t("msg.loadFoldersFailed"));
   }
 
   return data.folders || [];
@@ -111,7 +111,7 @@ async function refreshLessonList() {
   const lessons = await res.json();
 
   if (!res.ok || !Array.isArray(lessons)) {
-    throw new Error(lessons.error || "Load lessons failed");
+    throw new Error(lessons.error || t("msg.loadLessonsFailed"));
   }
 
   const list = document.getElementById("lessonList");
@@ -120,7 +120,7 @@ async function refreshLessonList() {
   if (lessons.length === 0) {
     const empty = document.createElement("li");
     empty.className = "library-card";
-    empty.innerText = "No lessons in this folder";
+    empty.innerText = t("lesson.noLessons");
     list.appendChild(empty);
     return;
   }
@@ -136,7 +136,7 @@ async function refreshLessonList() {
 
     const meta = document.createElement("div");
     meta.className = "clip-meta";
-    meta.innerText = lessonItem.media_filename || "No media";
+    meta.innerText = lessonItem.media_filename || t("common.noMedia");
 
     li.append(title, meta);
     list.appendChild(li);
@@ -148,15 +148,15 @@ async function openLesson(id) {
   const lesson = await res.json();
 
   if (!res.ok) {
-    throw new Error(lesson.error || "Load lesson failed");
+    throw new Error(lesson.error || t("msg.loadLessonFailed"));
   }
 
   viewerState.lesson = lesson;
   viewerState.clips = Array.isArray(lesson.clips) ? lesson.clips : [];
   viewerState.clipCurrentPage = 1;
 
-  document.getElementById("lessonTitle").innerText = lesson.title || "Untitled Lesson";
-  document.getElementById("lessonMeta").innerText = lesson.media_filename || "No media selected";
+  document.getElementById("lessonTitle").innerText = lesson.title || t("common.untitledLesson");
+  document.getElementById("lessonMeta").innerText = lesson.media_filename || t("common.noMediaSelected");
 
   const editLink = document.getElementById("editCurrentLessonLink");
   editLink.href = `editor.html?lessonId=${encodeURIComponent(lesson.id)}`;
@@ -206,7 +206,7 @@ function renderClips() {
   if (!viewerState.lesson) {
     const li = document.createElement("li");
     li.className = "clip-card";
-    li.innerText = "Choose a lesson from the left.";
+    li.innerText = t("lesson.chooseFromLeft");
     list.appendChild(li);
     renderClipPagination(pagination, 0, 1, 0, 0);
     return;
@@ -234,10 +234,10 @@ function renderClips() {
     actions.className = "clip-actions";
 
     const playBtn = document.createElement("button");
-    playBtn.innerText = "Play";
+    playBtn.innerText = t("common.play");
     playBtn.onclick = () => {
       if (parseTimeInput(clip.end) <= parseTimeInput(clip.start)) {
-        showAppMessage("這個 clip 的時間範圍不合法。", "error");
+        showAppMessage(t("msg.invalidClipRange"), "error");
         return;
       }
       playClip(clip);
@@ -257,15 +257,15 @@ function renderClipPagination(container, totalClips, pageCount, pageStart, visib
   const summary = document.createElement("span");
   summary.className = "clip-page-summary";
   summary.innerText = totalClips === 0
-    ? "0 clips"
-    : `${pageStart + 1}-${pageStart + visibleCount} / ${totalClips} clips`;
+    ? `0 ${t("common.clips")}`
+    : `${pageStart + 1}-${pageStart + visibleCount} / ${totalClips} ${t("common.clips")}`;
 
   const controls = document.createElement("div");
   controls.className = "clip-page-controls";
 
   const prevBtn = document.createElement("button");
   prevBtn.type = "button";
-  prevBtn.innerText = "Prev";
+  prevBtn.innerText = t("common.prev");
   prevBtn.disabled = viewerState.clipCurrentPage <= 1;
   prevBtn.onclick = () => {
     viewerState.clipCurrentPage -= 1;
@@ -274,11 +274,11 @@ function renderClipPagination(container, totalClips, pageCount, pageStart, visib
 
   const pageLabel = document.createElement("span");
   pageLabel.className = "clip-page-label";
-  pageLabel.innerText = `Page ${viewerState.clipCurrentPage} / ${pageCount}`;
+  pageLabel.innerText = `${t("common.page")} ${viewerState.clipCurrentPage} / ${pageCount}`;
 
   const nextBtn = document.createElement("button");
   nextBtn.type = "button";
-  nextBtn.innerText = "Next";
+  nextBtn.innerText = t("common.next");
   nextBtn.disabled = viewerState.clipCurrentPage >= pageCount;
   nextBtn.onclick = () => {
     viewerState.clipCurrentPage += 1;
@@ -335,5 +335,19 @@ async function bootstrap() {
 
 bootstrap().catch((err) => {
   console.error(err);
-  showAppMessage(`初始化閱覽頁失敗：\n${err.message || err}`, "error");
+  showAppMessage(`${t("msg.viewerInitFailed")}\n${err.message || err}`, "error");
+});
+
+window.addEventListener("ui-language-change", () => {
+  refreshFolderSelect().catch(console.error);
+  refreshLessonList().catch(console.error);
+  renderClips();
+
+  if (!viewerState.lesson) {
+    document.getElementById("lessonTitle").innerText = t("lesson.select");
+    document.getElementById("lessonMeta").innerText = "";
+  } else {
+    document.getElementById("lessonMeta").innerText =
+      viewerState.lesson.media_filename || t("common.noMediaSelected");
+  }
 });

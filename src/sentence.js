@@ -52,12 +52,12 @@ async function refreshSentenceCategoryOptions() {
 
   const allOption = document.createElement("option");
   allOption.value = "";
-  allOption.innerText = "All categories";
+  allOption.innerText = t("sentence.allCategories");
   select.appendChild(allOption);
 
   const exportAllOption = document.createElement("option");
   exportAllOption.value = "";
-  exportAllOption.innerText = "All categories";
+  exportAllOption.innerText = t("sentence.allCategories");
   exportSelect.appendChild(exportAllOption);
 
   (data.categories || []).forEach((category) => {
@@ -161,13 +161,13 @@ function renderSentenceList() {
     const noteDiv = document.createElement("div");
     noteDiv.style.marginTop = "6px";
     noteDiv.style.color = "#666";
-    noteDiv.innerText = item.note ? `Note: ${item.note}` : "";
+    noteDiv.innerText = item.note ? `${t("common.note")}: ${item.note}` : "";
 
     const actions = document.createElement("div");
     actions.className = "clip-actions";
 
     const playBtn = document.createElement("button");
-    playBtn.innerText = "Play";
+    playBtn.innerText = t("common.play");
     playBtn.onclick = async () => {
       try {
         if (currentSentenceTimeHandler) {
@@ -217,13 +217,13 @@ function renderSentenceList() {
 
     if (isEditMode) {
       const editBtn = document.createElement("button");
-      editBtn.innerText = "Edit";
+      editBtn.innerText = t("common.edit");
       editBtn.onclick = () => {
         openSentenceEditor(item);
       };
 
       const deleteBtn = document.createElement("button");
-      deleteBtn.innerText = "Delete";
+      deleteBtn.innerText = t("common.delete");
       deleteBtn.onclick = async () => {
         const ok = confirm(`確定要刪除這筆 sentence 嗎？\n${item.jp || ""}`);
         if (!ok) return;
@@ -273,10 +273,10 @@ function renderSentencePagination(container, totalSentences, pageCount, pageStar
   summary.className = "clip-page-summary";
 
   if (totalSentences === 0) {
-    summary.innerText = "0 sentences";
+    summary.innerText = `0 ${t("common.sentences")}`;
   } else {
     summary.innerText =
-      `${pageStart + 1}-${pageStart + visibleCount} / ${totalSentences} sentences`;
+      `${pageStart + 1}-${pageStart + visibleCount} / ${totalSentences} ${t("common.sentences")}`;
   }
 
   const controls = document.createElement("div");
@@ -284,7 +284,7 @@ function renderSentencePagination(container, totalSentences, pageCount, pageStar
 
   const prevBtn = document.createElement("button");
   prevBtn.type = "button";
-  prevBtn.innerText = "Prev";
+  prevBtn.innerText = t("common.prev");
   prevBtn.disabled = sentenceCurrentPage <= 1;
   prevBtn.onclick = () => {
     sentenceCurrentPage -= 1;
@@ -293,11 +293,11 @@ function renderSentencePagination(container, totalSentences, pageCount, pageStar
 
   const pageLabel = document.createElement("span");
   pageLabel.className = "clip-page-label";
-  pageLabel.innerText = `Page ${sentenceCurrentPage} / ${pageCount}`;
+  pageLabel.innerText = `${t("common.page")} ${sentenceCurrentPage} / ${pageCount}`;
 
   const nextBtn = document.createElement("button");
   nextBtn.type = "button";
-  nextBtn.innerText = "Next";
+  nextBtn.innerText = t("common.next");
   nextBtn.disabled = sentenceCurrentPage >= pageCount;
   nextBtn.onclick = () => {
     sentenceCurrentPage += 1;
@@ -313,7 +313,7 @@ function renderExportAvailableList() {
   list.innerHTML = "";
 
   if (exportAvailableItems.length === 0) {
-    list.innerText = "No sentences found";
+    list.innerText = t("sentence.noFound");
     return;
   }
 
@@ -369,11 +369,11 @@ function renderExportSelectedList() {
   const count = document.getElementById("sentenceExportSelectedCount");
   const selectedItems = Array.from(selectedExportSentences.values());
 
-  count.innerText = `${selectedItems.length} selected`;
+  count.innerText = t("common.selectedCount", { count: selectedItems.length });
   list.innerHTML = "";
 
   if (selectedItems.length === 0) {
-    list.innerText = "No sentences selected";
+    list.innerText = t("sentence.noSelected");
     return;
   }
 
@@ -396,7 +396,7 @@ function renderExportSelectedList() {
 
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
-    removeBtn.innerText = "Remove";
+    removeBtn.innerText = t("common.remove");
     removeBtn.onclick = () => {
       selectedExportSentences.delete(item.id);
       renderExportAvailableList();
@@ -435,7 +435,7 @@ async function refreshExportAvailableList() {
 }
 
 function openSentenceExportModal() {
-  document.getElementById("sentenceExportTitle").value = "Sentence Export";
+  document.getElementById("sentenceExportTitle").value = t("app.sentenceTitle");
   document.getElementById("sentenceExportSearchInput").value = "";
   document.getElementById("sentenceExportCategoryFilter").value = "";
   selectedExportSentences.clear();
@@ -506,6 +506,54 @@ async function downloadSentenceExportZip() {
   }
 }
 
+function importSentenceExportZip() {
+  const mode = confirm(t("msg.replaceDuplicatePrompt"))
+    ? "replace"
+    : "skip";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".zip";
+
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("duplicate_mode", mode);
+
+    try {
+      const res = await fetch("/api/sentences/import-export", {
+        method: "POST",
+        body: form
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Import failed");
+      }
+
+      closeSentenceEditor();
+      await refreshSentenceCategoryOptions();
+      await refreshSentenceList();
+
+      alert(
+        `匯入完成\n` +
+        `新增：${data.imported}\n` +
+        `跳過：${data.skipped}\n` +
+        `覆蓋：${data.replaced}`
+      );
+    } catch (err) {
+      console.error(err);
+      alert(`匯入失敗：\n${err.message || err}`);
+    }
+  };
+
+  input.click();
+}
+
 document.getElementById("saveSentenceEditBtn").onclick = async () => {
   if (!isEditMode) return;
 
@@ -521,7 +569,7 @@ document.getElementById("saveSentenceEditBtn").onclick = async () => {
   }
 
   if (!jp) {
-    alert("jp 不能為空");
+    alert(t("msg.sourceCannotBeEmpty"));
     return;
   }
 
@@ -616,6 +664,7 @@ document.getElementById("sentenceExportSearchInput").addEventListener("keydown",
   }
 });
 document.getElementById("sentenceExportDownloadBtn").onclick = downloadSentenceExportZip;
+document.getElementById("importSentenceExportBtn").onclick = importSentenceExportZip;
 document.getElementById("sentenceEditModeBtn").onclick = () => {
   window.location.href = isEditMode ? "sentence.html" : "sentence.html?mode=edit";
 };
@@ -624,17 +673,33 @@ document.getElementById("backToViewerBtn").onclick = () => {
 };
 
 if (isEditMode) {
-  document.title = "Sentence Book Editor";
-  document.querySelector("h1").innerText = "Sentence Book Editor";
-  document.getElementById("sentenceEditModeBtn").innerText = "View Mode";
+  document.querySelector("title").dataset.i18n = "app.sentenceEditorTitle";
+  document.querySelector("h1").dataset.i18n = "app.sentenceEditorTitle";
+  document.getElementById("sentenceEditModeBtn").dataset.i18n = "nav.viewerMode";
+  document.title = t("app.sentenceEditorTitle");
+  document.querySelector("h1").innerText = t("app.sentenceEditorTitle");
+  document.getElementById("sentenceEditModeBtn").innerText = t("nav.viewerMode");
 }
+
+window.addEventListener("ui-language-change", () => {
+  if (isEditMode) {
+    document.title = t("app.sentenceEditorTitle");
+    document.querySelector("h1").innerText = t("app.sentenceEditorTitle");
+    document.getElementById("sentenceEditModeBtn").innerText = t("nav.viewerMode");
+  }
+
+  refreshSentenceCategoryOptions().catch(console.error);
+  renderSentenceList();
+  renderExportAvailableList();
+  renderExportSelectedList();
+});
 
 refreshSentenceList().catch((err) => {
   console.error(err);
-  alert(`初始化 Sentence Book 失敗：\n${err.message || err}`);
+  alert(`${t("msg.sentenceInitFailed")}\n${err.message || err}`);
 });
 
 refreshSentenceCategoryOptions().catch((err) => {
   console.error(err);
-  alert(`初始化分類選單失敗：\n${err.message || err}`);
+  alert(`${t("msg.categoryInitFailed")}\n${err.message || err}`);
 });

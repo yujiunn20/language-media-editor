@@ -24,6 +24,13 @@ function createTempClipId() {
 }
 
 // ---------- helpers ----------
+function normalizeUniqueText(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
 function showAppMessage(message, type = "info") {
   const el = document.getElementById("appMessage");
   if (!el) {
@@ -53,7 +60,7 @@ async function fetchFolders(kind) {
   const data = await res.json();
 
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || "Load folders failed");
+    throw new Error(data.error || t("msg.loadFoldersFailed"));
   }
 
   return data.folders || [];
@@ -93,7 +100,7 @@ function renderFolderSelect(selectEl, folders, selectedId) {
 
   const rootOption = document.createElement("option");
   rootOption.value = "";
-  rootOption.innerText = "(root)";
+  rootOption.innerText = t("common.root");
   selectEl.appendChild(rootOption);
 
   const flattened = buildFolderTree(folders);
@@ -152,7 +159,7 @@ function openMoveModal(folders, options = {}) {
     const selectableNodes = [];
 
     const rootDiv = document.createElement("div");
-    rootDiv.innerText = "(root)";
+    rootDiv.innerText = t("common.root");
     rootDiv.onclick = () => {
       selectFolder(null, rootDiv);
     };
@@ -326,15 +333,15 @@ function setEditorMode(isEditing) {
   const modeLabel = getEditorModeLabel();
 
   if (isEditing) {
-    addBtn.innerText = "Update Clip";
+    addBtn.innerText = t("editor.updateClip");
     deleteBtn.style.display = "inline-block";
     cancelBtn.style.display = "inline-block";
-    modeLabel.innerText = `Editing clip`;
+    modeLabel.innerText = t("editor.editingClip");
   } else {
-    addBtn.innerText = "Add Clip";
+    addBtn.innerText = t("editor.addClip");
     deleteBtn.style.display = "none";
     cancelBtn.style.display = "none";
-    modeLabel.innerText = "New clip mode";
+    modeLabel.innerText = t("editor.newClipMode");
   }
 }
 
@@ -429,7 +436,7 @@ async function refreshMediaList() {
     actions.className = "library-card-actions";
 
     const deleteBtn = document.createElement("button");
-    deleteBtn.innerText = "Delete";
+    deleteBtn.innerText = t("common.delete");
     deleteBtn.onclick = async (e) => {
       e.stopPropagation();
 
@@ -462,7 +469,7 @@ async function refreshMediaList() {
     };
 
     const renameBtn = document.createElement("button");
-    renameBtn.innerText = "Rename";
+    renameBtn.innerText = t("common.rename");
 
     renameBtn.onclick = async (e) => {
       e.stopPropagation();
@@ -490,7 +497,7 @@ async function refreshMediaList() {
     };
 
     const moveBtn = document.createElement("button");
-    moveBtn.innerText = "Move";
+    moveBtn.innerText = t("common.move");
 
     moveBtn.onclick = async (e) => {
       e.stopPropagation();
@@ -566,7 +573,7 @@ async function refreshLessonList() {
     actions.className = "library-card-actions";
 
     const deleteBtn = document.createElement("button");
-    deleteBtn.innerText = "Delete";
+    deleteBtn.innerText = t("common.delete");
     deleteBtn.onclick = async (e) => {
       e.stopPropagation();
 
@@ -605,7 +612,7 @@ async function refreshLessonList() {
     };
 
     const renameBtn = document.createElement("button");
-    renameBtn.innerText = "Rename";
+    renameBtn.innerText = t("common.rename");
 
     renameBtn.onclick = async (e) => {
       e.stopPropagation();
@@ -642,7 +649,7 @@ async function refreshLessonList() {
     };
 
     const moveBtn = document.createElement("button");
-    moveBtn.innerText = "Move";
+    moveBtn.innerText = t("common.move");
 
     moveBtn.onclick = async (e) => {
       e.stopPropagation();
@@ -676,7 +683,7 @@ async function refreshLessonList() {
     };
 
     const exportBtn = document.createElement("button");
-    exportBtn.innerText = "Export";
+    exportBtn.innerText = t("common.export");
     exportBtn.onclick = (e) => {
       e.stopPropagation();
       window.location.href = `/api/lessons/${lessonItem.id}/export`;
@@ -701,7 +708,7 @@ async function transcribeCurrentClip() {
   }
 
   if (endTime <= startTime) {
-    alert("End time 必須大於 Start time");
+    alert(t("msg.endAfterStart"));
     return;
   }
 
@@ -710,7 +717,7 @@ async function transcribeCurrentClip() {
 
   try {
     btn.disabled = true;
-    if (status) status.innerText = "Transcribing...";
+    if (status) status.innerText = t("msg.transcribing");
 
     const res = await fetch("/api/transcribe", {
       method: "POST",
@@ -741,7 +748,7 @@ async function transcribeCurrentClip() {
   } catch (err) {
     console.error(err);
     showAppMessage(`轉錄失敗：\n${err.message || err}`, "error");
-    if (status) status.innerText = "Transcription failed.";
+    if (status) status.innerText = t("msg.transcriptionFailed");
   } finally {
     btn.disabled = false;
   }
@@ -813,6 +820,42 @@ document.getElementById("importLessonBtn").onclick = () => {
 
     await refreshLessonList();
     alert(`已匯入 lesson:\n${data.title} (id: ${data.id})`);
+  };
+
+  input.click();
+};
+
+document.getElementById("importLessonExportBtn").onclick = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".zip";
+
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+
+    const form = new FormData();
+    form.append("file", file);
+
+    if (currentLessonFolderId != null) {
+      form.append("folder_id", currentLessonFolderId);
+    }
+
+    const res = await fetch("/api/lessons/import-export", {
+      method: "POST",
+      body: form
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      alert(`lesson ZIP import failed:\n${data.error || res.statusText}`);
+      return;
+    }
+
+    await refreshMediaList();
+    await refreshLessonList();
+    alert(`已匯入 lesson ZIP:\n${data.title} (${data.imported_clips} clips)`);
   };
 
   input.click();
@@ -1129,18 +1172,18 @@ async function saveLesson(options = {}) {
   const title = getLessonTitleInput().value.trim();
 
   if (!title) {
-    alert("請先輸入 Lesson title");
+    alert(t("msg.enterLessonTitle"));
     getLessonTitleInput().focus();
     return false;
   }
 
   if (!lesson.media) {
-    alert("請先選擇 Media");
+    alert(t("msg.selectMedia"));
     return false;
   }
 
   if (confirmEmptyClips && lesson.clips.length === 0) {
-    const ok = confirm("目前沒有任何 clips，仍要儲存嗎？");
+    const ok = confirm(t("msg.confirmEmptyClips"));
     if (!ok) return false;
   }
 
@@ -1174,7 +1217,7 @@ async function saveLesson(options = {}) {
     return true;
   } catch (err) {
     console.error(err);
-    alert(`儲存失敗：\n${err.message || err}`);
+    alert(`${t("msg.saveFailed")}\n${err.message || err}`);
     return false;
   }
 }
@@ -1189,23 +1232,23 @@ document.getElementById("addClip").onclick = async () => {
   const category = getCategoryInput().value.trim();
 
   if (!lesson.media) {
-    alert("請先在 Media Library 選一個媒體檔");
+    alert(t("msg.selectMedia"));
     return;
   }
 
   if (!title) {
-    alert("請先輸入 Lesson title");
+    alert(t("msg.enterLessonTitle"));
     getLessonTitleInput().focus();
     return;
   }
 
   if (endTime <= startTime) {
-    alert("End time 必須大於 Start time");
+    alert(t("msg.endAfterStart"));
     return;
   }
 
   if (!jp) {
-    alert("請輸入日文句子");
+    alert(t("msg.sourceRequired"));
     return;
   }
 
@@ -1218,6 +1261,18 @@ document.getElementById("addClip").onclick = async () => {
     zh,
     category
   };
+
+  const normalizedJp = normalizeUniqueText(jp);
+  const duplicateClip = lesson.clips.find((clip) =>
+    clip.id !== editingClipId &&
+    normalizeUniqueText(clip.jp) === normalizedJp
+  );
+
+  if (duplicateClip) {
+    alert(`Lesson 內已有重複 sentence：\n${jp}`);
+    getJpInput().focus();
+    return;
+  }
 
   if (editingClipId) {
     lesson.clips = lesson.clips.map((clip) =>
@@ -1272,7 +1327,7 @@ document.getElementById("playEditorClipBtn").onclick = () => {
   syncStartEndFromInputs();
 
   if (endTime <= startTime) {
-    alert("End time 必須大於 Start time");
+    alert(t("msg.endAfterStart"));
     return;
   }
 
@@ -1322,7 +1377,7 @@ function openSaveSentenceModal(clip, clipIndex) {
   const categoryDefault = String(clip.category || "").trim();
 
   if (!jpDefault) {
-    showAppMessage("這個 clip 沒有 Japanese sentence，不能存成 Sentence。", "error");
+    showAppMessage(t("msg.clipHasNoSource"), "error");
     return;
   }
 
@@ -1353,7 +1408,7 @@ async function confirmSaveSentence() {
   const cancelBtn = document.getElementById("saveSentenceCancelBtn");
 
   if (!jp) {
-    setSaveSentenceStatus("Japanese sentence 不能空白。", "error");
+    setSaveSentenceStatus(t("msg.sourceRequired"), "error");
     document.getElementById("saveSentenceJp").focus();
     return;
   }
@@ -1361,7 +1416,7 @@ async function confirmSaveSentence() {
   try {
     confirmBtn.disabled = true;
     cancelBtn.disabled = true;
-    setSaveSentenceStatus("Saving sentence...");
+    setSaveSentenceStatus(t("msg.savingSentence"));
 
     const res = await fetch("/api/sentences", {
       method: "POST",
@@ -1388,10 +1443,10 @@ async function confirmSaveSentence() {
     }
 
     closeSaveSentenceModal();
-    showAppMessage("已存到 Sentence Book。", "success");
+    showAppMessage(t("msg.savedToSentenceBook"), "success");
   } catch (err) {
     console.error(err);
-    setSaveSentenceStatus(`存 sentence 失敗：\n${err.message || err}`, "error");
+    setSaveSentenceStatus(`${t("msg.saveSentenceFailed")}\n${err.message || err}`, "error");
   } finally {
     confirmBtn.disabled = false;
     cancelBtn.disabled = false;
@@ -1433,24 +1488,24 @@ function renderClips() {
     actions.className = "clip-actions";
 
     const playBtn = document.createElement("button");
-    playBtn.innerText = "Play";
+    playBtn.innerText = t("common.play");
     playBtn.onclick = () => {
       if (parseTimeInput(clip.end) <= parseTimeInput(clip.start)) {
-        alert("End time 必須大於 Start time");
+        alert(t("msg.endAfterStart"));
         return;
       }
       playClip(clip);
     };
 
     const editBtn = document.createElement("button");
-    editBtn.innerText = "Edit";
+    editBtn.innerText = t("common.edit");
     editBtn.onclick = () => {
       loadClipIntoEditorById(clip.id);
       seekPlayer(clip.start);
     };
 
     const delBtn = document.createElement("button");
-    delBtn.innerText = "Delete";
+    delBtn.innerText = t("common.delete");
     delBtn.onclick = async () => {
       const ok = confirm(`確定要刪除第 ${displayIndex} 個 clip 嗎？`);
       if (!ok) return;
@@ -1470,7 +1525,7 @@ function renderClips() {
     };
 
     const saveSentenceBtn = document.createElement("button");
-    saveSentenceBtn.innerText = "Save Sentence";
+    saveSentenceBtn.innerText = t("sentence.saveToBook");
     saveSentenceBtn.onclick = async () => {
       const originalIndex = lesson.clips.findIndex((c) => c.id === clip.id);
       openSaveSentenceModal(clip, originalIndex);
@@ -1491,9 +1546,9 @@ function renderClipPagination(container, totalClips, pageCount, pageStart, visib
   summary.className = "clip-page-summary";
 
   if (totalClips === 0) {
-    summary.innerText = "0 clips";
+    summary.innerText = `0 ${t("common.clips")}`;
   } else {
-    summary.innerText = `${pageStart + 1}-${pageStart + visibleCount} / ${totalClips} clips`;
+    summary.innerText = `${pageStart + 1}-${pageStart + visibleCount} / ${totalClips} ${t("common.clips")}`;
   }
 
   const controls = document.createElement("div");
@@ -1501,7 +1556,7 @@ function renderClipPagination(container, totalClips, pageCount, pageStart, visib
 
   const prevBtn = document.createElement("button");
   prevBtn.type = "button";
-  prevBtn.innerText = "Prev";
+  prevBtn.innerText = t("common.prev");
   prevBtn.disabled = clipCurrentPage <= 1;
   prevBtn.onclick = () => {
     clipCurrentPage -= 1;
@@ -1510,11 +1565,11 @@ function renderClipPagination(container, totalClips, pageCount, pageStart, visib
 
   const pageLabel = document.createElement("span");
   pageLabel.className = "clip-page-label";
-  pageLabel.innerText = `Page ${clipCurrentPage} / ${pageCount}`;
+  pageLabel.innerText = `${t("common.page")} ${clipCurrentPage} / ${pageCount}`;
 
   const nextBtn = document.createElement("button");
   nextBtn.type = "button";
-  nextBtn.innerText = "Next";
+  nextBtn.innerText = t("common.next");
   nextBtn.disabled = clipCurrentPage >= pageCount;
   nextBtn.onclick = () => {
     clipCurrentPage += 1;
@@ -1581,4 +1636,12 @@ async function bootstrap() {
 bootstrap().catch((err) => {
   console.error(err);
   alert(`初始化失敗：\n${err.message || err}`);
+});
+
+window.addEventListener("ui-language-change", () => {
+  renderClips();
+  setEditorMode(Boolean(editingClipId));
+  refreshFolderSelectors().catch(console.error);
+  refreshMediaList().catch(console.error);
+  refreshLessonList().catch(console.error);
 });
